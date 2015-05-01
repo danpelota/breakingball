@@ -8,11 +8,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime
+import logging
 
+
+LOG_FILENAME = 'logs/download.log'
+logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG,
+                    format='%(asctime)s %(message)s')
 
 Base = declarative_base()
 engine = create_engine(config.DB_URL, echo=True)
 Session = sessionmaker(bind=engine)
+
 
 class Game(Base):
     __tablename__ = 'games'
@@ -70,7 +76,7 @@ class Game(Base):
         try:
             game_request.raise_for_status()
         except requests.HTTPError:
-            print("No game data found: {}".format(self))
+            logging.info("No game data found: {}".format(self))
             return
         soup = BeautifulSoup(game_request.content, 'xml')
         details = soup.find('game').attrs
@@ -106,7 +112,7 @@ def fetch_game_listings(date):
     try:
         request.raise_for_status()
     except requests.HTTPError:
-        print("No game data on{}".format(date.strftime("%Y-%m-%d")))
+        logging.info("No game data on{}".format(date.strftime("%Y-%m-%d")))
     soup = BeautifulSoup(request.content)
     links = soup.find_all("a", href=re.compile("gid_"))
     gids = [l.text.strip().strip("/") for l in links]
@@ -148,15 +154,14 @@ def download_game_xml(game_id):
 
 def download_file(url, local_path, skip_if_exists=True):
     if skip_if_exists & os.path.exists(local_path):
-        print('{} exists. Skipping'.format(local_path))
+        logging.info('{} exists. Skipping'.format(local_path))
         return
 
-    print('Saving {} to {}'.format(url, local_path))
+    logging.info('Saving {} to {}'.format(url, local_path))
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     r = requests.get(url)
     if not r.ok:
-        print("* {} doesn't exist".format(url))
-        print(r.reason)
+        logging.info("* {} doesn't exist: {}".format(url, r.reason))
         return
     with open(local_path, 'wb') as outfile:
         outfile.write(r.content)
@@ -166,8 +171,6 @@ def download_days_games(date):
     game_ids = fetch_game_listings(date)
     for game_id in game_ids:
         download_game_xml(game_id)
-
-
 
 # if __name__ == "__main__":
 #     session = Session()
@@ -187,5 +190,5 @@ def download_days_games(date):
 #             game.update_details()
 #     session.commit()
 
-for game_date in daterange(dt.date(2015, 4, 1), dt.date(2015, 5, 1)):
+for game_date in daterange(dt.date(2008, 4, 1), dt.date(2015, 5, 1)):
     download_days_games(game_date)
