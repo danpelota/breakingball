@@ -11,8 +11,8 @@ from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime
 import logging
 
 
-LOG_FILENAME = 'logs/download.log'
-logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG,
+LOG_FILENAME = 'log/download.log'
+logging.basicConfig(filename=LOG_FILENAME, level=logging.WARNING,
                     format='%(asctime)s %(message)s')
 
 Base = declarative_base()
@@ -76,7 +76,7 @@ class Game(Base):
         try:
             game_request.raise_for_status()
         except requests.HTTPError:
-            logging.info("No game data found: {}".format(self))
+            logging.warning("No game data found: {}".format(self))
             return
         soup = BeautifulSoup(game_request.content, 'xml')
         details = soup.find('game').attrs
@@ -112,7 +112,7 @@ def fetch_game_listings(date):
     try:
         request.raise_for_status()
     except requests.HTTPError:
-        logging.info("No game data on{}".format(date.strftime("%Y-%m-%d")))
+        logging.warning("No game data on{}".format(date.strftime("%Y-%m-%d")))
     soup = BeautifulSoup(request.content)
     links = soup.find_all("a", href=re.compile("gid_"))
     gids = [l.text.strip().strip("/") for l in links]
@@ -124,14 +124,16 @@ def daterange(start_date, end_date):
         yield start_date + dt.timedelta(n)
 
 
-def download_game_xml(game_id):
+def download_game_xml(game_id, skip_if_exists=True):
     g = Game(game_id=game_id)
 
     download_file(g.url + 'linescore.xml',
-                  'xml/{}/linescore.xml'.format(game_id))
+                  'xml/{}/linescore.xml'.format(game_id),
+                  skip_if_exists=skip_if_exists)
 
     download_file(g.url + 'boxscore.xml',
-                  'xml/{}/boxscore.xml'.format(game_id))
+                  'xml/{}/boxscore.xml'.format(game_id),
+                  skip_if_exists=skip_if_exists)
 
     # List available batters
     batters = requests.get(g.url + 'batters')
@@ -140,7 +142,8 @@ def download_game_xml(game_id):
         batter_urls = batter_soup.find_all('a', href=re.compile(r'.xml$'))
         for url in batter_urls:
             download_file(g.url + 'batters/' + url.get('href'),
-                          'xml/{}/batters/{}'.format(game_id, url.get('href')))
+                          'xml/{}/batters/{}'.format(game_id, url.get('href')),
+                          skip_if_exists=skip_if_exists)
 
     # List available innings
     innings = requests.get(g.url + 'inning')
@@ -149,7 +152,8 @@ def download_game_xml(game_id):
         inning_urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
         for url in inning_urls:
             download_file(g.url + 'inning/' + url.get('href'),
-                          'xml/{}/inning/{}'.format(game_id, url.get('href')))
+                          'xml/{}/inning/{}'.format(game_id, url.get('href')),
+                          skip_if_exists=skip_if_exists)
 
 
 def download_file(url, local_path, skip_if_exists=True):
@@ -161,7 +165,7 @@ def download_file(url, local_path, skip_if_exists=True):
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     r = requests.get(url)
     if not r.ok:
-        logging.info("* {} doesn't exist: {}".format(url, r.reason))
+        logging.warning("* {} doesn't exist: {}".format(url, r.reason))
         return
     with open(local_path, 'wb') as outfile:
         outfile.write(r.content)
@@ -172,8 +176,10 @@ def download_days_games(date):
     for game_id in game_ids:
         download_game_xml(game_id)
 
-# if __name__ == "__main__":
-#     session = Session()
+if __name__ == "__main__":
+    for game_date in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 1)):
+        download_days_games(game_date)
+    # session = Session()
     # Base.metadata.drop_all(engine)
     # Base.metadata.create_all(engine)
 
@@ -190,5 +196,3 @@ def download_days_games(date):
 #             game.update_details()
 #     session.commit()
 
-for game_date in daterange(dt.date(2008, 4, 1), dt.date(2015, 5, 1)):
-    download_days_games(game_date)
