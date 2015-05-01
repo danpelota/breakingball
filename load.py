@@ -3,7 +3,8 @@ from bs4 import BeautifulSoup
 import datetime as dt
 import requests
 import re
-from sqlalchemy import create_engine, exists
+import os
+from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime
@@ -105,7 +106,7 @@ def fetch_game_listings(date):
     try:
         request.raise_for_status()
     except requests.HTTPError:
-        print("No game data on{}".format(game_date.strftime("%Y-%m-%d")))
+        print("No game data on{}".format(date.strftime("%Y-%m-%d")))
     soup = BeautifulSoup(request.content)
     links = soup.find_all("a", href=re.compile("gid_"))
     gids = [l.text.strip().strip("/") for l in links]
@@ -117,20 +118,74 @@ def daterange(start_date, end_date):
         yield start_date + dt.timedelta(n)
 
 
-if __name__ == "__main__":
-    session = Session()
+def download_game_xml(game_id):
+    g = Game(game_id=game_id)
+
+    download_file(g.url + 'linescore.xml',
+                  'xml/{}/linescore.xml'.format(game_id))
+
+    download_file(g.url + 'boxscore.xml',
+                  'xml/{}/boxscore.xml'.format(game_id))
+
+    # List available batters
+    batters = requests.get(g.url + 'batters')
+    if batters.ok:
+        batter_soup = BeautifulSoup(batters.content)
+        batter_urls = batter_soup.find_all('a', href=re.compile(r'.xml$'))
+        for url in batter_urls:
+            download_file(g.url + 'batters/' + url.get('href'),
+                          'xml/{}/batters/{}'.format(game_id, url.get('href')))
+
+    # List available innings
+    innings = requests.get(g.url + 'inning')
+    if innings.ok:
+        inning_soup = BeautifulSoup(innings.content)
+        inning_urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
+        for url in inning_urls:
+            download_file(g.url + 'inning/' + url.get('href'),
+                          'xml/{}/inning/{}'.format(game_id, url.get('href')))
+
+
+def download_file(url, local_path, skip_if_exists=True):
+    if skip_if_exists & os.path.exists(local_path):
+        print('{} exists. Skipping'.format(local_path))
+        return
+
+    print('Saving {} to {}'.format(url, local_path))
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    r = requests.get(url)
+    if not r.ok:
+        print("* {} doesn't exist".format(url))
+        print(r.reason)
+        return
+    with open(local_path, 'wb') as outfile:
+        outfile.write(r.content)
+
+
+def download_days_games(date):
+    game_ids = fetch_game_listings(date)
+    for game_id in game_ids:
+        download_game_xml(game_id)
+
+
+
+# if __name__ == "__main__":
+#     session = Session()
     # Base.metadata.drop_all(engine)
     # Base.metadata.create_all(engine)
 
     # Pull games from the last week
-    week_ago = dt.date.today() - dt.timedelta(7)
-    for game_date in daterange(week_ago, dt.date.today()):
-        game_ids = fetch_game_listings(game_date)
-        for game_id in game_ids:
-            q = session.query(Game).filter(Game.game_id==game_id)
-            game = q.first()
-            if not game:
-                game = Game(game_id=game_id)
-                session.add(game)
-            game.update_details()
-    session.commit()
+#     week_ago = dt.date.today() - dt.timedelta(3)
+#     for game_date in daterange(week_ago, dt.date.today()):
+#         game_ids = fetch_game_listings(game_date)
+#         for game_id in game_ids:
+#             q = session.query(Game).filter(Game.game_id==game_id)
+#             game = q.first()
+#             if not game:
+#                 game = Game(game_id=game_id)
+#                 session.add(game)
+#             game.update_details()
+#     session.commit()
+
+for game_date in daterange(dt.date(2015, 4, 1), dt.date(2015, 5, 1)):
+    download_days_games(game_date)
