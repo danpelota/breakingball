@@ -9,6 +9,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime
 import logging
+from multiprocessing import Pool
 
 
 LOG_FILENAME = 'log/download.log'
@@ -126,13 +127,16 @@ def daterange(start_date, end_date):
 
 def download_game_xml(game_id, skip_if_exists=True):
     g = Game(game_id=game_id)
+    s = requests.session()
 
     download_file(g.url + 'linescore.xml',
                   'xml/{}/linescore.xml'.format(game_id),
+                  session=s,
                   skip_if_exists=skip_if_exists)
 
     download_file(g.url + 'boxscore.xml',
                   'xml/{}/boxscore.xml'.format(game_id),
+                  session=s,
                   skip_if_exists=skip_if_exists)
 
     # List available batters
@@ -143,6 +147,7 @@ def download_game_xml(game_id, skip_if_exists=True):
         for url in batter_urls:
             download_file(g.url + 'batters/' + url.get('href'),
                           'xml/{}/batters/{}'.format(game_id, url.get('href')),
+                          session=s,
                           skip_if_exists=skip_if_exists)
 
     # List available innings
@@ -153,28 +158,33 @@ def download_game_xml(game_id, skip_if_exists=True):
         for url in inning_urls:
             download_file(g.url + 'inning/' + url.get('href'),
                           'xml/{}/inning/{}'.format(game_id, url.get('href')),
+                          session=s,
                           skip_if_exists=skip_if_exists)
+    s.close()
 
 
-def download_file(url, local_path, skip_if_exists=True):
+def download_file(url, local_path, session, skip_if_exists=True):
     if skip_if_exists & os.path.exists(local_path):
         logging.info('{} exists. Skipping'.format(local_path))
         return
 
     logging.info('Saving {} to {}'.format(url, local_path))
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    r = requests.get(url)
+    r = session.get(url, stream=True)
     if not r.ok:
         logging.warning("* {} doesn't exist: {}".format(url, r.reason))
         return
     with open(local_path, 'wb') as outfile:
-        outfile.write(r.content)
+        for chunk in r.iter_content(chunk_size=1024):
+            if chunk:
+                outfile.write(r.content)
+                outfile.flush()
 
 
-def download_days_games(date):
+def download_days_games(date, skip_if_exists, processes=4):
+    pool = Pool(processes=processes)
     game_ids = fetch_game_listings(date)
-    for game_id in game_ids:
-        download_game_xml(game_id)
+    pool.map(download_game_xml, game_ids)
 
 if __name__ == "__main__":
     for game_date in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 1)):
