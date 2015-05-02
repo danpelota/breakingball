@@ -1,114 +1,26 @@
-import config
+from models import Game
 from functools import partial
 from bs4 import BeautifulSoup
 import datetime as dt
 import requests
 import re
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime
 import logging
 from multiprocessing import Pool
+from utils import gid_to_date, gid_to_url
 
 
 LOG_FILENAME = 'log/download.log'
-logging.basicConfig(filename=LOG_FILENAME, level=logging.WARNING,
+logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG,
                     format='%(asctime)s %(message)s')
-
-Base = declarative_base()
-engine = create_engine(config.DB_URL, echo=True)
-Session = sessionmaker(bind=engine)
-
-
-class Game(Base):
-    __tablename__ = 'games'
-    game_id = Column(String, primary_key=True)
-    game_date = Column(Date, nullable=False)
-    game_datetime = Column(DateTime)
-    game_type = Column(String, nullable=False, default='')
-    venue = Column(String, nullable=False, default='')
-    url = Column(String, nullable=False)
-    inning = Column(Integer)
-    home_games_back = Column(Numeric)
-    away_games_back = Column(Numeric)
-    home_games_back_wildcard = Column(Numeric)
-    away_games_back_wildcard = Column(Numeric)
-    away_name_abbrev = Column(String, nullable=False, default='')
-    home_name_abbrev = Column(String, nullable=False, default='')
-    away_team_id = Column(String, nullable=False, default='')
-    away_team_city = Column(String, nullable=False, default='')
-    away_team_name = Column(String, nullable=False, default='')
-    away_division = Column(String, nullable=False, default='')
-    home_team_id = Column(String, nullable=False, default='')
-    home_team_city = Column(String, nullable=False, default='')
-    home_team_name = Column(String, nullable=False, default='')
-    home_division = Column(String, nullable=False, default='')
-    away_win = Column(Integer)
-    home_win = Column(Integer)
-    away_loss = Column(Integer)
-    home_loss = Column(Integer)
-    status = Column(String, nullable=False, default='')
-    inning = Column(Integer)
-    outs = Column(Integer)
-    away_team_runs = Column(Integer)
-    home_team_runs = Column(Integer)
-    away_team_hits = Column(Integer)
-    home_team_hits = Column(Integer)
-    away_team_errors = Column(Integer)
-    home_team_errors = Column(Integer)
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        year = self.game_id[4:8]
-        month = self.game_id[9:11]
-        day = self.game_id[12:14]
-        self.game_date = dt.date(int(year), int(month), int(day))
-        self.url = ("http://gd2.mlb.com/components/game/mlb/"
-                    "year_{0:04}/month_{1:02}/day_{2:02}/{3}/").format(
-                        self.game_date.year, self.game_date.month,
-                        self.game_date.day, self.game_id)
-
-    def __repr__(self):
-        return "<Game(game_id='{}', url='{}')>".format(self.game_id, self.url)
-
-    def update_details(self):
-        game_request = requests.get(self.url + "linescore.xml")
-        try:
-            game_request.raise_for_status()
-        except requests.HTTPError:
-            logging.warning("No game data found: {}".format(self))
-            return
-        soup = BeautifulSoup(game_request.content, 'xml')
-        details = soup.find('game').attrs
-
-        if details.get('home_games_back', '') == '-':
-            details['home_games_back'] = '0'
-            details['home_games_back_wildcard'] = '0'
-        if details.get('home_games_back_wildcard', '') == '-':
-            details['home_games_back_wildcard'] = '0'
-
-        if details.get('away_games_back', '') == '-':
-            details['away_games_back'] = '0'
-            details['away_games_back_wildcard'] = '0'
-        if details.get('away_games_back_wildcard', '') == '-':
-            details['away_games_back_wildcard'] = '0'
-        try:
-            time = dt.datetime.strptime(details.get('time'), "%H:%M").time()
-            details['game_datetime'] = dt.datetime.combine(self.game_date, time)
-        except ValueError:
-            # time is formatted as "TBD", or something similar
-            pass
-
-        for key in details:
-            setattr(self, key, details[key])
 
 
 def download_days_games(date, pool, skip_if_exists=True):
+    ''' Download game data from specified date. '''
+
     game_ids = fetch_game_listings(date)
     pool.map(partial(download_game_xml, skip_if_exists=skip_if_exists),
-                 game_ids)
+             game_ids)
 
 
 def fetch_game_listings(date):
@@ -128,38 +40,38 @@ def fetch_game_listings(date):
 
 
 def download_game_xml(game_id, skip_if_exists=True):
-    g = Game(game_id=game_id)
+    game_url = gid_to_url(game_id)
     s = requests.session()
 
-    download_file(g.url + 'linescore.xml',
+    download_file(game_url + 'linescore.xml',
                   'xml/{}/linescore.xml'.format(game_id),
                   session=s,
                   skip_if_exists=skip_if_exists)
 
-    download_file(g.url + 'boxscore.xml',
+    download_file(game_url + 'boxscore.xml',
                   'xml/{}/boxscore.xml'.format(game_id),
                   session=s,
                   skip_if_exists=skip_if_exists)
 
     # List available batters
-    batters = requests.get(g.url + 'batters')
+    batters = requests.get(game_url + 'batters')
     if batters.ok:
         batter_soup = BeautifulSoup(batters.content)
         batter_urls = batter_soup.find_all('a', href=re.compile(r'.xml$'))
-        for url in batter_urls:
-            download_file(g.url + 'batters/' + url.get('href'),
-                          'xml/{}/batters/{}'.format(game_id, url.get('href')),
+        for batter_url in batter_urls:
+            download_file(game_url + 'batters/' + batter_url.get('href'),
+                          'xml/{}/batters/{}'.format(game_id, batter_url.get('href')),
                           session=s,
                           skip_if_exists=skip_if_exists)
 
     # List available innings
-    innings = requests.get(g.url + 'inning')
+    innings = requests.get(game_url + 'inning')
     if innings.ok:
         inning_soup = BeautifulSoup(innings.content)
         inning_urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
-        for url in inning_urls:
-            download_file(g.url + 'inning/' + url.get('href'),
-                          'xml/{}/inning/{}'.format(game_id, url.get('href')),
+        for inning_url in inning_urls:
+            download_file(game_url + 'inning/' + inning_url.get('href'),
+                          'xml/{}/inning/{}'.format(game_id, inning_url.get('href')),
                           session=s,
                           skip_if_exists=skip_if_exists)
     s.close()
@@ -183,7 +95,6 @@ def download_file(url, local_path, session, skip_if_exists=True):
 def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days) + 1):
         yield start_date + dt.timedelta(n)
-
 
 
 if __name__ == "__main__":
