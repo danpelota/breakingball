@@ -1,4 +1,5 @@
 import config
+from functools import partial
 from bs4 import BeautifulSoup
 import datetime as dt
 import requests
@@ -104,6 +105,12 @@ class Game(Base):
             setattr(self, key, details[key])
 
 
+def download_days_games(date, pool, skip_if_exists=True):
+    game_ids = fetch_game_listings(date)
+    pool.map(partial(download_game_xml, skip_if_exists=skip_if_exists),
+                 game_ids)
+
+
 def fetch_game_listings(date):
     base_url = "http://gd2.mlb.com/components/game/mlb/"
     date_pattern = "year_{0:04}/month_{1:02}/day_{2:02}/".format(
@@ -118,11 +125,6 @@ def fetch_game_listings(date):
     links = soup.find_all("a", href=re.compile("gid_"))
     gids = [l.text.strip().strip("/") for l in links]
     return gids
-
-
-def daterange(start_date, end_date):
-    for n in range(int((end_date - start_date).days) + 1):
-        yield start_date + dt.timedelta(n)
 
 
 def download_game_xml(game_id, skip_if_exists=True):
@@ -170,39 +172,21 @@ def download_file(url, local_path, session, skip_if_exists=True):
 
     logging.info('Saving {} to {}'.format(url, local_path))
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    r = session.get(url, stream=True)
+    r = session.get(url)
     if not r.ok:
         logging.warning("* {} doesn't exist: {}".format(url, r.reason))
         return
     with open(local_path, 'wb') as outfile:
-        for chunk in r.iter_content(chunk_size=1024):
-            if chunk:
-                outfile.write(r.content)
-                outfile.flush()
+        outfile.write(r.content)
 
 
-def download_days_games(date, skip_if_exists, processes=4):
-    pool = Pool(processes=processes)
-    game_ids = fetch_game_listings(date)
-    pool.map(download_game_xml, game_ids)
+def daterange(start_date, end_date):
+    for n in range(int((end_date - start_date).days) + 1):
+        yield start_date + dt.timedelta(n)
+
+
 
 if __name__ == "__main__":
+    pool = Pool(4)
     for game_date in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 1)):
-        download_days_games(game_date)
-    # session = Session()
-    # Base.metadata.drop_all(engine)
-    # Base.metadata.create_all(engine)
-
-    # Pull games from the last week
-#     week_ago = dt.date.today() - dt.timedelta(3)
-#     for game_date in daterange(week_ago, dt.date.today()):
-#         game_ids = fetch_game_listings(game_date)
-#         for game_id in game_ids:
-#             q = session.query(Game).filter(Game.game_id==game_id)
-#             game = q.first()
-#             if not game:
-#                 game = Game(game_id=game_id)
-#                 session.add(game)
-#             game.update_details()
-#     session.commit()
-
+        download_days_games(game_date, pool=pool, skip_if_exists=True)
