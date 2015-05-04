@@ -40,6 +40,8 @@ def fetch_game_listings(date):
 
 
 def download_game_xml(game_id, skip_if_exists=True):
+    # TODO: Only get pitchers/batters who appear in the game? We would miss data
+    # that would help to serve as a snapshot for the entire team's composition
     game_url = gid_to_url(game_id)
     s = requests.session()
 
