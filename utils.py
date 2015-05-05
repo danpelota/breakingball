@@ -13,7 +13,7 @@ def gid_to_date(game_id):
 def gid_to_url(game_id):
     game_date = gid_to_date(game_id)
     date_url = date_to_url(game_date)
-    game_url = urljoin(date_url, game_id)
+    game_url = urljoin(date_url, game_id) + '/'
     return game_url
 
 

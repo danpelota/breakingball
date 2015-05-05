@@ -7,10 +7,11 @@ import os
 import logging
 from multiprocessing import Pool
 from utils import gid_to_url, date_to_url, daterange
+from urllib.parse import urljoin
 
 
 LOG_FILENAME = 'log/download.log'
-logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG,
+logging.basicConfig(filename=LOG_FILENAME, level=logging.WARNING,
                     format='%(asctime)s %(message)s')
 
 
@@ -45,34 +46,35 @@ def download_game_xml(game_id, skip_if_exists=True):
     game_url = gid_to_url(game_id)
     s = requests.session()
 
-    download_file(game_url + 'linescore.xml',
+    download_file(urljoin(game_url,'linescore.xml'),
                   'xml/{}/linescore.xml'.format(game_id),
                   session=s,
                   skip_if_exists=skip_if_exists)
 
-    download_file(game_url + 'boxscore.xml',
+    download_file(urljoin(game_url, 'boxscore.xml'),
                   'xml/{}/boxscore.xml'.format(game_id),
                   session=s,
                   skip_if_exists=skip_if_exists)
 
     # List available batters
-    batters = requests.get(game_url + 'batters')
+    batters = requests.get(urljoin(game_url, 'batters'))
+    logging.info(batters.content)
     if batters.ok:
         batter_soup = BeautifulSoup(batters.content)
         batter_urls = batter_soup.find_all('a', href=re.compile(r'.xml$'))
         for batter_url in batter_urls:
-            download_file(game_url + 'batters/' + batter_url.get('href'),
+            download_file(urljoin(game_url, 'batters', batter_url.get('href')),
                           'xml/{}/batters/{}'.format(game_id, batter_url.get('href')),
                           session=s,
                           skip_if_exists=skip_if_exists)
 
     # List available innings
-    innings = requests.get(game_url + 'inning')
+    innings = requests.get(urljoin(game_url, 'inning'))
     if innings.ok:
         inning_soup = BeautifulSoup(innings.content)
         inning_urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
         for inning_url in inning_urls:
-            download_file(game_url + 'inning/' + inning_url.get('href'),
+            download_file(urljoin(game_url, 'batters/', inning_url.get('href')),
                           'xml/{}/inning/{}'.format(game_id, inning_url.get('href')),
                           session=s,
                           skip_if_exists=skip_if_exists)
@@ -97,5 +99,5 @@ def download_file(url, local_path, session, skip_if_exists=True):
 
 if __name__ == "__main__":
     pool = Pool(4)
-    for game_date in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 1)):
+    for game_date in daterange(dt.date(2009, 2, 25), dt.date(2009, 2, 25)):
         download_days_games(game_date, pool=pool, skip_if_exists=True)
