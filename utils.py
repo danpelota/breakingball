@@ -1,4 +1,6 @@
 import datetime as dt
+from urllib.parse import urljoin
+
 
 def gid_to_date(game_id):
     year = game_id[4:8]
@@ -7,9 +9,23 @@ def gid_to_date(game_id):
     game_date = dt.date(int(year), int(month), int(day))
     return game_date
 
+
 def gid_to_url(game_id):
     game_date = gid_to_date(game_id)
-    url = ("http://gd2.mlb.com/components/game/mlb/"
-           "year_{0:04}/month_{1:02}/day_{2:02}/{3}/").format(
-               game_date.year, game_date.month, game_date.day, game_id)
-    return url
+    date_url = date_to_url(game_date)
+    game_url = urljoin(date_url, game_id)
+    return game_url
+
+
+def date_to_url(game_date):
+    base_url = "http://gd2.mlb.com/components/game/mlb/"
+    date_pattern = "year_{0:04}/month_{1:02}/day_{2:02}/".format(
+        game_date.year, game_date.month, game_date.day)
+    date_url = urljoin(base_url, date_pattern)
+    return date_url
+
+
+def daterange(start_date, end_date):
+    for n in range(int((end_date - start_date).days) + 1):
+        yield start_date + dt.timedelta(n)
+

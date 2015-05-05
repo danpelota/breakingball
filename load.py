@@ -1,4 +1,3 @@
-from models import Game
 from functools import partial
 from bs4 import BeautifulSoup
 import datetime as dt
@@ -7,7 +6,7 @@ import re
 import os
 import logging
 from multiprocessing import Pool
-from utils import gid_to_date, gid_to_url
+from utils import gid_to_url, date_to_url, daterange
 
 
 LOG_FILENAME = 'log/download.log'
@@ -15,19 +14,20 @@ logging.basicConfig(filename=LOG_FILENAME, level=logging.DEBUG,
                     format='%(asctime)s %(message)s')
 
 
-def download_days_games(date, pool, skip_if_exists=True):
+def download_days_games(date, pool=None, skip_if_exists=True):
     ''' Download game data from specified date. '''
 
     game_ids = fetch_game_listings(date)
-    pool.map(partial(download_game_xml, skip_if_exists=skip_if_exists),
-             game_ids)
+    if pool is not None:
+        mapper = pool.map
+    else:
+        mapper = map
+    mapper(partial(download_game_xml, skip_if_exists=skip_if_exists),
+           game_ids)
 
 
 def fetch_game_listings(date):
-    base_url = "http://gd2.mlb.com/components/game/mlb/"
-    date_pattern = "year_{0:04}/month_{1:02}/day_{2:02}/".format(
-        date.year, date.month, date.day)
-    date_url = base_url + date_pattern
+    date_url = date_to_url(date)
     request = requests.get(date_url)
     try:
         request.raise_for_status()
@@ -93,10 +93,6 @@ def download_file(url, local_path, session, skip_if_exists=True):
     with open(local_path, 'wb') as outfile:
         outfile.write(r.content)
 
-
-def daterange(start_date, end_date):
-    for n in range(int((end_date - start_date).days) + 1):
-        yield start_date + dt.timedelta(n)
 
 
 if __name__ == "__main__":
