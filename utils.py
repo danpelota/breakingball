@@ -2,6 +2,22 @@ import datetime as dt
 from urllib.parse import urljoin
 
 
+def try_int(x):
+    try:
+        out = int(x)
+    except (TypeError, ValueError) as e:
+        out = None
+    return out
+
+
+def try_float(x):
+    try:
+        out = float(x)
+    except (TypeError, ValueError) as e:
+        out = None
+    return out
+
+
 def gid_to_date(game_id):
     year = game_id[4:8]
     month = game_id[9:11]
@@ -28,4 +44,3 @@ def date_to_url(game_date):
 def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days) + 1):
         yield start_date + dt.timedelta(n)
-

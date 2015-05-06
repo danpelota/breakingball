@@ -99,5 +99,5 @@ def download_file(url, local_path, session, skip_if_exists=True):
 
 if __name__ == "__main__":
     pool = Pool(4)
-    for game_date in daterange(dt.date(2009, 2, 25), dt.date(2009, 2, 25)):
-        download_days_games(game_date, pool=pool, skip_if_exists=True)
+    for game_date in daterange(dt.date(2015, 4, 23), dt.date(2015, 5, 6)):
+        download_days_games(game_date, pool=pool, skip_if_exists=False)
