@@ -12,8 +12,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, Boolean
 
 Base = declarative_base()
-#engine = create_engine(config.DB_URL, echo=True)
-engine = create_engine(config.DB_URL)
+engine = create_engine(config.DB_URL, echo=True)
+#engine = create_engine(config.DB_URL)
 Session = sessionmaker(bind=engine)
 
 
@@ -183,6 +183,54 @@ class Team_Stats(Base):
                    losses=losses, winrate=winrate, batting_avg=batting_avg,
                    ab=ab, r=r, h=h, d=d, t=t, hr=hr, rbi=rbi, bb=bb, po=po,
                    da=da, so=so, lob=lob)
+
+
+class Pitcher(Base):
+    __tablename__ = 'pitchers'
+
+    pitcher_id = Column(Integer, primary_key=True)
+    game_id = Column(String, primary_key=True)
+    team_id = Column(Integer)
+    name = Column(String, nullable=False, default = '')
+    full_name = Column(String, nullable=False, default = '')
+    pos = Column(String, nullable=False, default = '')
+    out = Column(Integer)
+    bf = Column(Integer)
+    hr = Column(Integer)
+    bb = Column(Integer)
+    so = Column(Integer)
+    er = Column(Integer)
+    r = Column(Integer)
+    h = Column(Integer)
+    w = Column(Integer)
+    l = Column(Integer)
+    sv = Column(Integer)
+    era = Column(Numeric)
+    np = Column(Integer)
+    s = Column(Integer)
+    bs = Column(Integer)
+
+    @classmethod
+    def from_soup(cls, boxscore_soup, linescore_soup, homeaway='home'):
+        # TODO: Prefer linescore, since it's posted before the boxscore (or use
+        # game.xml
+        pitching = boxscore_soup.find('pitching', team_flag=homeaway)
+        boxscore = boxscore_soup.find('boxscore')
+        game = linescore_soup.find('game')
+
+        # There are multiple pitchers per game here
+        team_id = try_int(boxscore.get(homeaway + '_id'))
+        season = try_int(boxscore.get('game_id')[:4])
+        name = boxscore.get(homeaway + '_fname')
+        short_name = boxscore.get(homeaway + '_sname')
+        # League is a two-character code (e.g., 'AN'), with the home team's
+        # league first and the away team second. If away, use second. If
+        # home, use first.
+        league = game.get('league', '  ')[homeaway == 'away']
+        division = game.get(homeaway + '_division', '')
+        return cls(team_id=team_id, season=season, name=name,
+                   short_name=short_name, league=league, division=division)
+
 
 
 def load_from_path(path, session):
