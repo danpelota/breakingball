@@ -112,7 +112,7 @@ class Pitcher(Base):
     full_name = Column(String, nullable=False, default = '')
     pos = Column(String, nullable=False, default = '')
     out = Column(Integer)
-    bf = Column(Integer)
+    batters_faced = Column(Integer)
     hr = Column(Integer)
     bb = Column(Integer)
     so = Column(Integer)

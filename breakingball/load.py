@@ -2,15 +2,15 @@ import psycopg2 as pg
 from bs4 import BeautifulSoup
 import requests
 import re
-from utils import gid_to_url, gid_to_date, try_int, try_float
+from utils import gid_to_url, gid_to_date, try_int, try_float, dict_to_db
 import datetime as dt
 from download import logging
-from models import Session
+from models import Session, engine
 
 class GameLoader:
-    def __init__(self, game_id, session):
+    def __init__(self, game_id, engine):
         self.game_id = game_id
-        self.session = session
+        self.engine = engine
         self.game_date = gid_to_date(game_id)
         self.season = self.game_date.year
         self.base_url = gid_to_url(game_id)
@@ -116,6 +116,24 @@ class GameLoader:
         self.parse_team('away')
         self.parse_team_stats('home')
         self.parse_team_stats('away')
+
+    def to_staging(self):
+        temp_sql = '''CREATE TEMP TABLE temp_games AS SELECT * FROM games LIMIT 0;
+        CREATE TEMP TABLE temp_team_stats AS SELECT * FROM team_stats LIMIT 0;
+        CREATE TEMP TABLE temp_teams AS SELECT * FROM teams LIMIT 0;
+        '''
+        engine.execute(temp_sql)
+
+        sql = dict_to_db(self.game, 'temp_games', self.engine)
+        engine.execute(sql, self.game)
+
+        sql = dict_to_db(self.team_stats['home'], 'temp_team_stats', self.engine)
+        engine.execute(sql, self.team_stats['home'])
+        engine.execute(sql, self.team_stats['away'])
+
+
+
+
 
 
 

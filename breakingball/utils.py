@@ -45,3 +45,11 @@ def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days) + 1):
         yield start_date + dt.timedelta(n)
 
+
+def dict_to_db(d, table, engine):
+    columns = d.keys()
+    sql_template = 'INSERT INTO {} ({}) VALUES ({});'
+    sql = sql_template.format(table,
+                              ', '.join(columns),
+                              ', '.join('%(' + key + ')s' for key in columns))
+    return sql
