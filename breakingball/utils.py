@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 def try_int(x):
     try:
         out = int(x)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         out = None
     return out
 
@@ -13,7 +13,7 @@ def try_int(x):
 def try_float(x):
     try:
         out = float(x)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         out = None
     return out
 
@@ -44,3 +44,4 @@ def date_to_url(game_date):
 def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days) + 1):
         yield start_date + dt.timedelta(n)
+

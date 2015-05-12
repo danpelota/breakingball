@@ -74,7 +74,7 @@ def download_game_xml(game_id, skip_if_exists=True):
         inning_soup = BeautifulSoup(innings.content)
         inning_urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
         for inning_url in inning_urls:
-            download_file(urljoin(game_url, 'batters/', inning_url.get('href')),
+            download_file(urljoin(game_url, 'innings/', inning_url.get('href')),
                           'xml/{}/inning/{}'.format(game_id, inning_url.get('href')),
                           session=s,
                           skip_if_exists=skip_if_exists)
@@ -99,5 +99,5 @@ def download_file(url, local_path, session, skip_if_exists=True):
 
 if __name__ == "__main__":
     pool = Pool(4)
-    for game_date in daterange(dt.date(2015, 4, 23), dt.date(2015, 5, 6)):
+    for game_date in daterange(dt.date(2015, 4, 1), dt.date(2015, 5, 9)):
         download_days_games(game_date, pool=pool, skip_if_exists=False)
