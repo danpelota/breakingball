@@ -4,7 +4,7 @@ import re
 from utils import gid_to_url, gid_to_date, try_int, try_float, dict_to_db
 import datetime as dt
 from download import logging
-from models import Session, Game, Team, Team_Stats, Pitcher
+from models import Session, Game, Team, Team_Stats, Pitcher, Batter
 
 class GameLoader:
     def __init__(self, game_id, session):
@@ -109,6 +109,45 @@ class GameLoader:
         team_stats['era'] = try_int(batting.get('era'))
         self.session.merge(Team_Stats(**team_stats))
 
+    def parse_batters(self):
+        for batter in self.boxscore.find_all('batter'):
+            b = {}
+            b['game_id'] = self.game_id
+            homeaway = batter.parent.get('team_flag')
+            b['team_id'] = try_int(self.boxscore.get(homeaway + '_id'))
+            b['batter_id'] = try_int(batter.get('id'))
+            b['name'] = batter.get('name')
+            b['full_name'] = batter.get('name_display_first_last')
+            b['batting_order'] = try_int(batter.get('bo'))
+            b['at_bats'] = try_int(batter.get('ab'))
+            b['strikeouts'] = try_int(batter.get('so'))
+            b['flyouts'] = try_int(batter.get('ao'))
+            b['hits'] = try_int(batter.get('h'))
+            b['doubles'] = try_int(batter.get('d'))
+            b['triples'] = try_int(batter.get('t'))
+            b['home_runs'] = try_int(batter.get('hr'))
+            b['walks'] = try_int(batter.get('bb'))
+            b['hit_by_pitch'] = try_int(batter.get('hbp'))
+            b['sac_bunts'] = try_int(batter.get('sac'))
+            b['sac_flys'] = try_int(batter.get('fs'))
+            b['rbi'] = try_int(batter.get('rbi'))
+            b['assists'] = try_int(batter.get('a'))
+            b['runs'] = try_int(batter.get('r'))
+            b['left_on_base'] = try_int(batter.get('lob'))
+            b['caught_stealing'] = try_int(batter.get('cs'))
+            b['stolen_bases'] = try_int(batter.get('sb'))
+            b['season_walks'] = try_int(batter.get('s_bb'))
+            b['season_hits'] = try_int(batter.get('s_h'))
+            b['season_home_runs'] = try_int(batter.get('s_hr'))
+            b['season_runs'] = try_int(batter.get('s_r'))
+            b['season_rbi'] = try_int(batter.get('s_rbi'))
+            b['season_strikeouts'] = try_int(batter.get('s_so'))
+            b['position'] = batter.get('pos')
+            b['putouts'] = try_int(batter.get('po'))
+            b['errors'] = try_int(batter.get('e'))
+            b['fielding'] = try_float(batter.get('fldg'))
+            self.session.merge(Batter(**b))
+
     def parse_pitchers(self):
         #pitching = self.boxscore.find('pitching')
         for pitcher in self.boxscore.find_all('pitcher'):
@@ -157,6 +196,7 @@ class GameLoader:
         self.parse_team_stats('home')
         self.parse_team_stats('away')
         self.parse_pitchers()
+        self.parse_batters()
         self.session.commit()
 
 

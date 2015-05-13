@@ -140,6 +140,47 @@ class Pitcher(Base):
     win = Column(Boolean, default=False)
 
 
+class Batter(Base):
+    __tablename__ = 'batters'
+    game_id = Column(String, primary_key=True)
+    team_id = Column(Integer, primary_key=True)
+    batter_id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    full_name = Column(String, nullable=False)
+    # Hitting
+    batting_order = Column(Integer)
+    at_bats = Column(Integer)
+    strikeouts = Column(Integer)
+    flyouts = Column(Integer)
+    hits = Column(Integer)
+    doubles = Column(Integer)
+    triples = Column(Integer)
+    home_runs = Column(Integer)
+    walks = Column(Integer)
+    hit_by_pitch = Column(Integer)
+    sac_bunts = Column(Integer)
+    sac_flys = Column(Integer)
+    rbi = Column(Integer)
+    assists = Column(Integer)
+    runs = Column(Integer)
+    left_on_base = Column(Integer)
+    caught_stealing = Column(Integer)
+    stolen_bases = Column(Integer)
+    season_walks = Column(Integer)
+    season_hits = Column(Integer)
+    season_home_runs = Column(Integer)
+    season_runs = Column(Integer)
+    season_rbi = Column(Integer)
+    season_strikeouts = Column(Integer)
+    # Fielding
+    position = Column(String)
+    putouts = Column(String)
+    errors = Column(Integer)
+    putouts = Column(Integer)
+    fielding = Column(Numeric)
+
+
+
 
 if __name__ == '__main__':
     Base.metadata.drop_all(engine)
