@@ -1,21 +1,19 @@
-import psycopg2 as pg
 from bs4 import BeautifulSoup
 import requests
 import re
 from utils import gid_to_url, gid_to_date, try_int, try_float, dict_to_db
 import datetime as dt
 from download import logging
-from models import Session, engine
+from models import Session, Game, Team, Team_Stats, Pitcher
 
 class GameLoader:
-    def __init__(self, game_id, engine):
+    def __init__(self, game_id, session):
         self.game_id = game_id
-        self.engine = engine
+        self.session = session
         self.game_date = gid_to_date(game_id)
         self.season = self.game_date.year
         self.base_url = gid_to_url(game_id)
-        self.teams = {}
-        self.team_stats = {}
+        self.url = gid_to_url(game_id)
 
     def fetch_linescore(self):
         url = self.base_url + 'linescore.xml'
@@ -32,6 +30,7 @@ class GameLoader:
     def parse_game(self):
         game = {}
         game['game_id'] = self.game_id
+        game['url'] = self.url
         game['game_date'] = self.game_date
         game['season'] = self.season
         time_text = '{} {}'.format(self.linescore.get('time'), self.linescore.get('ampm'))
@@ -56,7 +55,7 @@ class GameLoader:
         game['away_team_hits'] = try_int(self.linescore.get('away_team_hits'))
         game['home_team_errors'] = try_int(self.linescore.get('home_team_errors'))
         game['away_team_errors'] = try_int(self.linescore.get('away_team_errors'))
-        self.game = game
+        self.session.merge(Game(**game))
 
     def parse_team(self, homeaway='home'):
         team = {}
@@ -69,7 +68,7 @@ class GameLoader:
         # home, use first.
         team['league'] = self.linescore.get('league', '  ')[homeaway == 'away']
         team['division'] = self.linescore.get(homeaway + '_division', '')
-        self.teams[homeaway] = team
+        self.session.merge(Team(**team))
 
     def parse_team_stats(self, homeaway='home'):
         team_stats = {}
@@ -108,7 +107,48 @@ class GameLoader:
         team_stats['strikeouts'] = try_int(batting.get('so'))
         team_stats['left_on_base'] = try_int(batting.get('lob'))
         team_stats['era'] = try_int(batting.get('era'))
-        self.team_stats[homeaway] = team_stats
+        self.session.merge(Team_Stats(**team_stats))
+
+    def parse_pitchers(self):
+        #pitching = self.boxscore.find('pitching')
+        for pitcher in self.boxscore.find_all('pitcher'):
+            p = {}
+            p['pitcher_id'] = try_int(pitcher.get('id'))
+            p['game_id'] = self.game_id
+            homeaway = pitcher.parent.get('team_flag')
+            p['team_id'] = try_int(self.boxscore.get(homeaway + '_id'))
+            p['name'] = pitcher.get('name')
+            p['full_name'] = pitcher.get('name_display_first_last')
+            p['position'] = pitcher.get('pos')
+            p['outs'] = try_int(pitcher.get('out'))
+            p['batters_faced'] = try_int(pitcher.get('bf'))
+            p['home_runs'] = try_int(pitcher.get('hr'))
+            p['walks'] = try_int(pitcher.get('bb'))
+            p['strikeouts'] = try_int(pitcher.get('so'))
+            p['earned_runs'] = try_int(pitcher.get('er'))
+            p['runs'] = try_int(pitcher.get('r'))
+            p['hits'] = try_int(pitcher.get('h'))
+            p['wins'] = try_int(pitcher.get('w'))
+            p['losses'] = try_int(pitcher.get('l'))
+            p['saves'] = try_int(pitcher.get('sv'))
+            p['era'] = try_float(pitcher.get('era'))
+            p['pitches_thrown'] = try_int(pitcher.get('np'))
+            p['strikes'] = try_int(pitcher.get('s'))
+            p['blown_saves'] = try_int(pitcher.get('bs'))
+            p['holds'] = try_int(pitcher.get('hld'))
+            p['season_innings_pitched'] = try_int(pitcher.get('s_ip'))
+            p['season_hits'] = try_int(pitcher.get('s_h'))
+            p['season_runs'] = try_int(pitcher.get('s_r'))
+            p['season_earned_runs'] = try_int(pitcher.get('s_er'))
+            p['season_walks'] = try_int(pitcher.get('s_bb'))
+            p['season_strikeouts'] = try_int(pitcher.get('s_so'))
+            p['game_score'] = try_int(pitcher.get('game_score'))
+            p['blown_save'] = pitcher.get('blown_save')
+            p['save'] = pitcher.get('save')
+            p['loss'] = pitcher.get('loss')
+            p['win'] = pitcher.get('win')
+            self.session.merge(Pitcher(**p))
+
 
     def parse_all(self):
         self.parse_game()
@@ -116,20 +156,9 @@ class GameLoader:
         self.parse_team('away')
         self.parse_team_stats('home')
         self.parse_team_stats('away')
+        self.parse_pitchers()
+        self.session.commit()
 
-    def to_staging(self):
-        temp_sql = '''CREATE TEMP TABLE temp_games AS SELECT * FROM games LIMIT 0;
-        CREATE TEMP TABLE temp_team_stats AS SELECT * FROM team_stats LIMIT 0;
-        CREATE TEMP TABLE temp_teams AS SELECT * FROM teams LIMIT 0;
-        '''
-        engine.execute(temp_sql)
-
-        sql = dict_to_db(self.game, 'temp_games', self.engine)
-        engine.execute(sql, self.game)
-
-        sql = dict_to_db(self.team_stats['home'], 'temp_team_stats', self.engine)
-        engine.execute(sql, self.team_stats['home'])
-        engine.execute(sql, self.team_stats['away'])
 
 
 

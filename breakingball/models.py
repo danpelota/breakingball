@@ -110,66 +110,35 @@ class Pitcher(Base):
     team_id = Column(Integer)
     name = Column(String, nullable=False, default = '')
     full_name = Column(String, nullable=False, default = '')
-    pos = Column(String, nullable=False, default = '')
-    out = Column(Integer)
+    position = Column(String, nullable=False, default = '')
+    outs = Column(Integer)
     batters_faced = Column(Integer)
-    hr = Column(Integer)
-    bb = Column(Integer)
-    so = Column(Integer)
-    er = Column(Integer)
-    r = Column(Integer)
-    h = Column(Integer)
-    w = Column(Integer)
-    l = Column(Integer)
-    sv = Column(Integer)
+    home_runs = Column(Integer)
+    walks = Column(Integer)
+    strikeouts = Column(Integer)
+    earned_runs = Column(Integer)
+    runs = Column(Integer)
+    hits = Column(Integer)
+    wins = Column(Integer)
+    losses = Column(Integer)
+    saves = Column(Integer)
     era = Column(Numeric)
-    np = Column(Integer)
-    s = Column(Integer)
-    bs = Column(Integer)
+    pitches_thrown = Column(Integer)
+    strikes = Column(Integer)
+    blown_saves = Column(Integer)
+    holds = Column(Integer)
+    season_innings_pitched = Column(Integer)
+    season_hits = Column(Integer)
+    season_runs = Column(Integer)
+    season_earned_runs = Column(Integer)
+    season_walks = Column(Integer)
+    season_strikeouts = Column(Integer)
+    game_score = Column(Integer)
+    blown_save = Column(Boolean, default=False)
+    save = Column(Boolean, default=False)
+    loss = Column(Boolean, default=False)
+    win = Column(Boolean, default=False)
 
-    @classmethod
-    def from_soup(cls, boxscore_soup, linescore_soup, homeaway='home'):
-        # TODO: Prefer linescore, since it's posted before the boxscore (or use
-        # game.xml
-        pitching = boxscore_soup.find('pitching', team_flag=homeaway)
-        boxscore = boxscore_soup.find('boxscore')
-        game = linescore_soup.find('game')
-
-        # There are multiple pitchers per game here
-        team_id = try_int(boxscore.get(homeaway + '_id'))
-        season = try_int(boxscore.get('game_id')[:4])
-        name = boxscore.get(homeaway + '_fname')
-        short_name = boxscore.get(homeaway + '_sname')
-        # League is a two-character code (e.g., 'AN'), with the home team's
-        # league first and the away team second. If away, use second. If
-        # home, use first.
-        league = game.get('league', '  ')[homeaway == 'away']
-        division = game.get(homeaway + '_division', '')
-        return cls(team_id=team_id, season=season, name=name,
-                   short_name=short_name, league=league, division=division)
-
-
-
-def load_from_path(path, session):
-    linescore_path = os.path.join(path, 'linescore.xml')
-    boxscore_path = os.path.join(path, 'boxscore.xml')
-    try:
-        with open(linescore_path, 'r') as lp:
-            linescore_soup = BeautifulSoup(lp)
-        with open(boxscore_path, 'r') as bp:
-            boxscore_soup = BeautifulSoup(bp)
-    except FileNotFoundError:
-        logging.warn('No game data: {}'.format(path))
-        return
-
-    game = Game.from_soup(linescore_soup)
-    home_team = Team.from_soup(boxscore_soup, linescore_soup, 'home')
-    away_team = Team.from_soup(boxscore_soup, linescore_soup, 'away')
-    home_stats = Team_Stats.from_soup(boxscore_soup, linescore_soup, 'home')
-    away_stats = Team_Stats.from_soup(boxscore_soup, linescore_soup, 'away')
-    session.add_all([game, home_stats, away_stats])
-    session.merge(home_team)
-    session.merge(away_team)
 
 
 if __name__ == '__main__':
