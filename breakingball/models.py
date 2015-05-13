@@ -76,7 +76,7 @@ class Team(Base):
                    short_name=short_name, league=league, division=division)
 
 
-class Team_Stats(Base):
+class TeamStats(Base):
     __tablename__ = 'team_stats'
     game_id = Column(String, primary_key=True)
     team_id = Column(Integer, primary_key=True)
@@ -178,8 +178,6 @@ class Batter(Base):
     errors = Column(Integer)
     putouts = Column(Integer)
     fielding = Column(Numeric)
-
-
 
 
 if __name__ == '__main__':

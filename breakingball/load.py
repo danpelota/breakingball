@@ -4,7 +4,7 @@ import re
 from utils import gid_to_url, gid_to_date, try_int, try_float, dict_to_db
 import datetime as dt
 from download import logging
-from models import Session, Game, Team, Team_Stats, Pitcher, Batter
+from models import Session, Game, Team, TeamStats, Pitcher, Batter
 
 class GameLoader:
     def __init__(self, game_id, session):
@@ -107,7 +107,7 @@ class GameLoader:
         team_stats['strikeouts'] = try_int(batting.get('so'))
         team_stats['left_on_base'] = try_int(batting.get('lob'))
         team_stats['era'] = try_int(batting.get('era'))
-        self.session.merge(Team_Stats(**team_stats))
+        self.session.merge(TeamStats(**team_stats))
 
     def parse_batters(self):
         for batter in self.boxscore.find_all('batter'):
