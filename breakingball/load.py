@@ -27,6 +27,15 @@ class GameLoader:
         soup = BeautifulSoup(r.content).find('boxscore')
         self.boxscore = soup
 
+    def fetch_innings(self):
+        list_url = self.base_url + 'inning/'
+        r = requests.get(list_url)
+        inning_soup = BeautifulSoup(r.content)
+        urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
+        innings_r = [requests.get(list_url + url.get('href')) for url in urls]
+        innings_soup = [BeautifulSoup(x.content).find('inning') for x in innings_r]
+        self.innings = innings_soup
+
     def parse_game(self):
         game = {}
         game['game_id'] = self.game_id
