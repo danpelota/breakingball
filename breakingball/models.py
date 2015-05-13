@@ -145,8 +145,8 @@ class Batter(Base):
     game_id = Column(String, primary_key=True)
     team_id = Column(Integer, primary_key=True)
     batter_id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    full_name = Column(String, nullable=False)
+    name = Column(String, nullable=False, default='')
+    full_name = Column(String, nullable=False, default='')
     # Hitting
     batting_order = Column(Integer)
     at_bats = Column(Integer)
@@ -179,6 +179,27 @@ class Batter(Base):
     putouts = Column(Integer)
     fielding = Column(Numeric)
 
+
+class AtBat(Base):
+    __tablename__ = 'at_bats'
+    at_bat_number = Column(Integer, primary_key=True)
+    game_id = Column(String, primary_key=True)
+    inning = Column(Integer)
+    inning_half = Column(String, nullable=False, default='')
+    balls = Column(Integer)
+    strikes = Column(Integer)
+    outs = Column(Integer)
+    start_time = Column(DateTime)
+    batter_id = Column(Integer)
+    pitcher_id = Column(Integer)
+    stands = Column(String, nullable=False, default='')
+    p_throws = Column(String, nullable=False, default='')
+    description = Column(String, nullable=False, default='')
+    event_num = Column(Integer)
+    event = Column(String, nullable=False, default='')
+    score = Column(Boolean)
+    home_team_runs = Column(Integer)
+    away_team_runs = Column(Integer)
 
 if __name__ == '__main__':
     Base.metadata.drop_all(engine)

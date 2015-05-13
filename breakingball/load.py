@@ -3,8 +3,9 @@ import requests
 import re
 from utils import gid_to_url, gid_to_date, try_int, try_float, dict_to_db
 import datetime as dt
+from pytz import timezone
 from download import logging
-from models import Session, Game, Team, TeamStats, Pitcher, Batter
+from models import Session, Game, Team, TeamStats, Pitcher, Batter, AtBat
 
 class GameLoader:
     def __init__(self, game_id, session):
@@ -35,6 +36,16 @@ class GameLoader:
         innings_r = [requests.get(list_url + url.get('href')) for url in urls]
         innings_soup = [BeautifulSoup(x.content).find('inning') for x in innings_r]
         self.innings = innings_soup
+        self.atbats = []
+        self.pitches = []
+        self.runners = []
+        for inning in innings_soup:
+            for atbat in inning.find_all('atbat'):
+                self.atbats.append(atbat)
+            for pitch in inning.find_all('pitch'):
+                self.pitches.append(pitch)
+            for runner in inning.find_all('runner'):
+                self.runners.append(runner)
 
     def parse_game(self):
         game = {}
@@ -50,7 +61,7 @@ class GameLoader:
             logging.warn('Could not parse time for {}'.format(game_id))
 
         game['venue'] = self.linescore.get('venue')
-        game['game_type'] = self.linescore.get('game_type')
+        game['game_type'] = self.linescore.get('game_type', '')
         game['inning'] = try_int(self.linescore.get('inning'))
         game['outs'] = try_int(self.linescore.get('outs'))
         game['top_inning'] = ((self.linescore.get('top_inning') is not None) &
@@ -64,9 +75,13 @@ class GameLoader:
         game['away_team_hits'] = try_int(self.linescore.get('away_team_hits'))
         game['home_team_errors'] = try_int(self.linescore.get('home_team_errors'))
         game['away_team_errors'] = try_int(self.linescore.get('away_team_errors'))
+        game = dict((k, v) for k, v in game.items() if v is not None)
         self.session.merge(Game(**game))
 
     def parse_team(self, homeaway='home'):
+        if self.boxscore is None:
+            logging.warn('No boxscore available to parse')
+            return
         team = {}
         team['team_id'] = try_int(self.boxscore.get(homeaway + '_id'))
         team['season'] = self.season
@@ -77,6 +92,7 @@ class GameLoader:
         # home, use first.
         team['league'] = self.linescore.get('league', '  ')[homeaway == 'away']
         team['division'] = self.linescore.get(homeaway + '_division', '')
+        team = dict((k, v) for k, v in team.items() if v is not None)
         self.session.merge(Team(**team))
 
     def parse_team_stats(self, homeaway='home'):
@@ -97,8 +113,8 @@ class GameLoader:
         else:
             team_stats['games_back'] = try_float(games_back_text)
             team_stats['games_back_wildcard'] = try_float(games_back_wildcard_text)
-        wins = try_int(self.boxscore.get(homeaway + '_wins'))
-        losses = try_int(self.boxscore.get(homeaway + '_loss'))
+        wins = try_int(self.boxscore.get(homeaway + '_wins', 0))
+        losses = try_int(self.boxscore.get(homeaway + '_loss', 0))
         team_stats['wins'] = wins
         team_stats['losses'] = losses
         team_stats['winrate'] = 0 if (wins + losses) == 0 else wins / (wins + losses)
@@ -116,6 +132,7 @@ class GameLoader:
         team_stats['strikeouts'] = try_int(batting.get('so'))
         team_stats['left_on_base'] = try_int(batting.get('lob'))
         team_stats['era'] = try_int(batting.get('era'))
+        team_stats = dict((k, v) for k, v in team_stats.items() if v is not None)
         self.session.merge(TeamStats(**team_stats))
 
     def parse_batters(self):
@@ -155,6 +172,7 @@ class GameLoader:
             b['putouts'] = try_int(batter.get('po'))
             b['errors'] = try_int(batter.get('e'))
             b['fielding'] = try_float(batter.get('fldg'))
+            b = dict((k, v) for k, v in b.items() if v is not None)
             self.session.merge(Batter(**b))
 
     def parse_pitchers(self):
@@ -195,8 +213,44 @@ class GameLoader:
             p['save'] = pitcher.get('save')
             p['loss'] = pitcher.get('loss')
             p['win'] = pitcher.get('win')
+            p = dict((k, v) for k, v in p.items() if v is not None)
             self.session.merge(Pitcher(**p))
 
+    def parse_atbats(self):
+        for atbat in self.atbats:
+            ab = {}
+            ab['at_bat_number'] = int(atbat.get('num'))
+            ab['game_id'] = self.game_id
+            ab['inning'] = try_int(atbat.parent.parent.get('num'))
+            ab['inning_half'] = atbat.parent.name
+            ab['balls'] = try_int(atbat.get('b'))
+            ab['strikes'] = try_int(atbat.get('s'))
+            ab['outs'] = try_int(atbat.get('o'))
+            try:
+                t = dt.datetime.strptime(atbat.get('start_tfs_zulu', ''), '%Y-%m-%dT%H:%M:%SZ')
+                ab['start_time'] = t.replace(tzinfo=timezone('UTC')).\
+                    astimezone(timezone('America/New_York'))
+            except ValueError:
+                logging.warning('Could not parse timestamp: Game {}; inning{}'.format(
+                    self.game_id, ab['inning']))
+            ab['batter_id'] = try_int(atbat.get('batter'))
+            ab['pitcher_id'] = try_int(atbat.get('pitcher'))
+            ab['stands'] = atbat.get('stand')
+            ab['p_throws'] = atbat.get('p_throws')
+            ab['description'] = atbat.get('des')
+            ab['event_num'] = try_int(atbat.get('event_num'))
+            ab['event'] = atbat.get('event')
+            ab['score'] = atbat.get('score', 'F') == 'T'
+            ab['home_team_runs'] = try_int(atbat.get('home_team_runs'))
+            ab['away_team_runs'] = try_int(atbat.get('away_team_runs'))
+            ab = dict((k, v) for k, v in ab.items() if v is not None)
+            self.session.merge(AtBat(**ab))
+
+
+    def fetch_all(self):
+        self.fetch_linescore()
+        self.fetch_boxscore()
+        self.fetch_innings()
 
     def parse_all(self):
         self.parse_game()
@@ -206,6 +260,7 @@ class GameLoader:
         self.parse_team_stats('away')
         self.parse_pitchers()
         self.parse_batters()
+        self.parse_atbats()
         self.session.commit()
 
 
