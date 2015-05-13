@@ -1,5 +1,8 @@
 import datetime as dt
 from urllib.parse import urljoin
+from bs4 import BeautifulSoup
+import requests
+import re
 
 
 def try_int(x):
@@ -17,6 +20,18 @@ def try_float(x):
         out = None
     return out
 
+
+def fetch_game_listings(date):
+    date_url = date_to_url(date)
+    request = requests.get(date_url)
+    try:
+        request.raise_for_status()
+    except requests.HTTPError:
+        print('No game data on {}'.foramt(date.strftime('%Y-%m-%d')))
+    soup = BeautifulSoup(request.content)
+    links = soup.find_all('a', href=re.compile('gid_'))
+    gids = [l.text.strip().strip('/') for l in links]
+    return gids
 
 def gid_to_date(game_id):
     year = game_id[4:8]

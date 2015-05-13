@@ -253,15 +253,16 @@ class GameLoader:
         self.fetch_innings()
 
     def parse_all(self):
-        self.parse_game()
-        self.parse_team('home')
-        self.parse_team('away')
-        self.parse_team_stats('home')
-        self.parse_team_stats('away')
-        self.parse_pitchers()
-        self.parse_batters()
-        self.parse_atbats()
-        self.session.commit()
+        if (self.linescore is not None) & (self.boxscore is not None):
+            self.parse_game()
+            self.parse_team('home')
+            self.parse_team('away')
+            self.parse_team_stats('home')
+            self.parse_team_stats('away')
+            self.parse_pitchers()
+            self.parse_batters()
+            self.parse_atbats()
+            self.session.commit()
 
 
 
