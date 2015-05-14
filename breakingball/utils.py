@@ -27,7 +27,7 @@ def fetch_game_listings(date):
     try:
         request.raise_for_status()
     except requests.HTTPError:
-        print('No game data on {}'.foramt(date.strftime('%Y-%m-%d')))
+        print('No game data on {}'.format(date.strftime('%Y-%m-%d')))
     soup = BeautifulSoup(request.content)
     links = soup.find_all('a', href=re.compile('gid_'))
     gids = [l.text.strip().strip('/') for l in links]

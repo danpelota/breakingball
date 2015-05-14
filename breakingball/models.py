@@ -12,8 +12,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, Boolean
 
 Base = declarative_base()
-engine = create_engine(config.DB_URL, echo=True)
-#engine = create_engine(config.DB_URL)
+#engine = create_engine(config.DB_URL, echo=True)
+engine = create_engine(config.DB_URL)
 Session = sessionmaker(bind=engine)
 
 
@@ -249,7 +249,7 @@ class Runner(Base):
     runner_id = Column(Integer, primary_key=True)
     start = Column(String, nullable=False, default='')
     end = Column(String, nullable=False, default='')
-    event = Column(String, nullable=False, default='')
+    event = Column(String, nullable=False, default='', primary_key=True)
     event_num = Column(Integer)
     score = Column(Boolean)
     rbi = Column(Boolean)

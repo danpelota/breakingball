@@ -9,16 +9,19 @@ from download import logging
 from models import Session, Game, Team, TeamStats, Pitcher, Batter, Runner, AtBat,\
     Pitch
 from sqlalchemy.sql import exists
+from sqlalchemy import exc
+from multiprocessing import Pool
 
 
 class GameLoader:
-    def __init__(self, game_id, session):
+    def __init__(self, game_id, sessionmaker):
         self.game_id = game_id
-        self.session = session
+        self.session = sessionmaker()
         self.game_date = gid_to_date(game_id)
         self.season = self.game_date.year
         self.base_url = gid_to_url(game_id)
         self.url = gid_to_url(game_id)
+        self.to_load = []
 
     def fetch_linescore(self):
         url = self.base_url + 'linescore.xml'
@@ -80,7 +83,7 @@ class GameLoader:
         game['home_team_errors'] = try_int(self.linescore.get('home_team_errors'))
         game['away_team_errors'] = try_int(self.linescore.get('away_team_errors'))
         game = dict((k, v) for k, v in game.items() if v is not None)
-        self.session.merge(Game(**game))
+        self.to_load.append(Game(**game))
 
     def parse_team(self, homeaway='home'):
         if self.boxscore is None:
@@ -98,11 +101,11 @@ class GameLoader:
         team['division'] = self.linescore.get(homeaway + '_division', '')
         team = dict((k, v) for k, v in team.items() if v is not None)
         self.session.merge(Team(**team))
+        self.session.commit()
 
     def parse_team_stats(self, homeaway='home'):
         team_stats = {}
         batting = self.boxscore.find('batting', team_flag=homeaway)
-        pitching = self.boxscore.find('pitching', team_flag=homeaway)
         team_stats['game_id'] = self.game_id
         team_stats['team_id'] = try_int(self.boxscore.get(homeaway + '_id'))
         team_stats['at_home'] = (homeaway == 'home')
@@ -137,7 +140,7 @@ class GameLoader:
         team_stats['left_on_base'] = try_int(batting.get('lob'))
         team_stats['era'] = try_int(batting.get('era'))
         team_stats = dict((k, v) for k, v in team_stats.items() if v is not None)
-        self.session.merge(TeamStats(**team_stats))
+        self.to_load.append(TeamStats(**team_stats))
 
     def parse_batters(self):
         for batter in self.boxscore.find_all('batter'):
@@ -178,10 +181,9 @@ class GameLoader:
             b['errors'] = try_int(batter.get('e'))
             b['fielding'] = try_float(batter.get('fldg'))
             b = dict((k, v) for k, v in b.items() if v is not None)
-            self.session.merge(Batter(**b))
+            self.to_load.append(Batter(**b))
 
     def parse_pitchers(self):
-        #pitching = self.boxscore.find('pitching')
         for pitcher in self.boxscore.find_all('pitcher'):
             p = {}
             p['pitcher_id'] = try_int(pitcher.get('id'))
@@ -219,7 +221,7 @@ class GameLoader:
             p['loss'] = pitcher.get('loss')
             p['win'] = pitcher.get('win')
             p = dict((k, v) for k, v in p.items() if v is not None)
-            self.session.merge(Pitcher(**p))
+            self.to_load.append(Pitcher(**p))
 
     def parse_atbats(self):
         for atbat in self.atbats:
@@ -249,7 +251,7 @@ class GameLoader:
             ab['home_team_runs'] = try_int(atbat.get('home_team_runs'))
             ab['away_team_runs'] = try_int(atbat.get('away_team_runs'))
             ab = dict((k, v) for k, v in ab.items() if v is not None)
-            self.session.merge(AtBat(**ab))
+            self.to_load.append(AtBat(**ab))
 
     def parse_pitches(self):
         for pitch in self.pitches:
@@ -296,7 +298,7 @@ class GameLoader:
             p['spin_dir'] = try_float(pitch.get('spin_dir'))
             p['spin_rate'] = try_float(pitch.get('spin_rate'))
             p = dict((k, v) for k, v in p.items() if v is not None)
-            self.session.merge(Pitch(**p))
+            self.to_load.append(Pitch(**p))
 
     def parse_runners(self):
         for runner in self.runners:
@@ -312,8 +314,7 @@ class GameLoader:
             r['rbi'] = (runner.get('rbi') is not None) & (runner.get('rbi') == 'T')
             r['earned'] = (runner.get('earned') is not None) & (runner.get('earned') == 'T')
             r = dict((k, v) for k, v in r.items() if v is not None)
-            self.session.merge(Runner(**r))
-
+            self.to_load.append(Runner(**r))
 
     def fetch_all(self):
         self.fetch_linescore()
@@ -332,7 +333,6 @@ class GameLoader:
             self.parse_atbats()
             self.parse_pitches()
             self.parse_runners()
-            self.session.commit()
 
     def load(self, skip_if_final=True):
         loaded = self.session.query(exists().where(
@@ -341,13 +341,24 @@ class GameLoader:
             return
         self.fetch_all()
         self.parse_all()
+        try:
+            self.session.add_all(self.to_load)
+            self.session.commit()
+        except exc.IntegrityError:
+            self.session.rollback()
+            [self.session.merge(x) for x in self.to_load]
+            self.session.commit()
+        self.session.close()
 
 
 if __name__ == '__main__':
-    session = Session()
 
-    for d in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 14)):
+    def loadgame(gid):
+        g = GameLoader(gid, Session)
+        g.load()
+    p = Pool(16)
+
+    for d in daterange(dt.date(2008, 5, 13), dt.date(2015, 5, 14)):
+        print('Getting listings for {}'.format(d.strftime('%Y-%m-%d')))
         game_ids = fetch_game_listings(d)
-        for game_id in game_ids:
-            g = GameLoader(game_id, session)
-            g.load()
+        p.map(loadgame, game_ids)
