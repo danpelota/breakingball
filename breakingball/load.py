@@ -106,6 +106,7 @@ class GameLoader:
     def parse_team_stats(self, homeaway='home'):
         team_stats = {}
         batting = self.boxscore.find('batting', team_flag=homeaway)
+        pitching = self.boxscore.find('pitching', team_flag=homeaway)
         team_stats['game_id'] = self.game_id
         team_stats['team_id'] = try_int(self.boxscore.get(homeaway + '_id'))
         team_stats['at_home'] = (homeaway == 'home')
@@ -138,7 +139,7 @@ class GameLoader:
         team_stats['da'] = try_int(batting.get('da'))
         team_stats['strikeouts'] = try_int(batting.get('so'))
         team_stats['left_on_base'] = try_int(batting.get('lob'))
-        team_stats['era'] = try_int(batting.get('era'))
+        team_stats['era'] = try_float(pitching.get('era'))
         team_stats = dict((k, v) for k, v in team_stats.items() if v is not None)
         self.to_load.append(TeamStats(**team_stats))
 
@@ -358,7 +359,7 @@ if __name__ == '__main__':
         g.load()
     p = Pool(16)
 
-    for d in daterange(dt.date(2008, 5, 13), dt.date(2015, 5, 14)):
+    for d in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 14)):
         print('Getting listings for {}'.format(d.strftime('%Y-%m-%d')))
         game_ids = fetch_game_listings(d)
         p.map(loadgame, game_ids)
