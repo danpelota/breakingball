@@ -339,6 +339,7 @@ class GameLoader:
         loaded = self.session.query(exists().where(
             (Game.game_id == self.game_id) & (Game.status == 'Final'))).scalar()
         if skip_if_final & loaded:
+            self.session.close()
             return
         self.fetch_all()
         self.parse_all()
