@@ -127,7 +127,7 @@ class Pitcher(Base):
     strikes = Column(Integer)
     blown_saves = Column(Integer)
     holds = Column(Integer)
-    season_innings_pitched = Column(Integer)
+    season_innings_pitched = Column(Numeric)
     season_hits = Column(Integer)
     season_runs = Column(Integer)
     season_earned_runs = Column(Integer)
@@ -148,6 +148,7 @@ class Batter(Base):
     name = Column(String, nullable=False, default='')
     full_name = Column(String, nullable=False, default='')
     # Hitting
+    avg = Column(Numeric)
     batting_order = Column(Integer)
     at_bats = Column(Integer)
     strikeouts = Column(Integer)
@@ -201,44 +202,60 @@ class AtBat(Base):
     home_team_runs = Column(Integer)
     away_team_runs = Column(Integer)
 
+
+class Pitch(Base):
+    __tablename__ = 'pitches'
+    game_id = Column(String, primary_key=True)
+    pitch_id = Column(Integer, primary_key=True)
+    at_bat_number = Column(Integer, nullable=False)
+    description = Column(String, nullable=False, default='')
+    type = Column(String, nullable=False, default='')
+    timestamp = Column(DateTime)
+    x = Column(Numeric)
+    y = Column(Numeric)
+    event_num = Column(Integer)
+    sv_id = Column(String, nullable=False, default='')
+    play_guid = Column(String, nullable=False, default='')
+    start_speed = Column(Numeric)
+    end_speed = Column(Numeric)
+    sz_top = Column(Numeric)
+    sz_bottom = Column(Numeric)
+    pfx_x = Column(Numeric)
+    pfx_z = Column(Numeric)
+    x0 = Column(Numeric)
+    y0 = Column(Numeric)
+    z0 = Column(Numeric)
+    vx0 = Column(Numeric)
+    vy0 = Column(Numeric)
+    vz0 = Column(Numeric)
+    ax = Column(Numeric)
+    ay = Column(Numeric)
+    az = Column(Numeric)
+    break_y = Column(Numeric)
+    break_angle = Column(Numeric)
+    break_length = Column(Numeric)
+    pitch_type = Column(String, nullable=False, default='')
+    type_confidence = Column(Numeric)
+    zone = Column(Integer)
+    nasty = Column(Integer)
+    spin_dir = Column(Numeric)
+    spin_rate = Column(Numeric)
+
+
+class Runner(Base):
+    __tablename__ = 'runners'
+    game_id = Column(String, primary_key=True)
+    at_bat_number = Column(Integer, primary_key=True)
+    runner_id = Column(Integer, primary_key=True)
+    start = Column(String, nullable=False, default='')
+    end = Column(String, nullable=False, default='')
+    event = Column(String, nullable=False, default='')
+    event_num = Column(Integer)
+    score = Column(Boolean)
+    rbi = Column(Boolean)
+    earned = Column(Boolean)
+
+
 if __name__ == '__main__':
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
-  #  session = Session()
-  #  paths = [
-  #      'xml/gid_2008_08_25_chnmlb_pitmlb_1/',
-  #      'xml/gid_2009_05_16_bosmlb_seamlb_1/',
-  #      'xml/gid_2010_04_30_nynmlb_phimlb_1/',
-  #      'xml/gid_2011_06_01_houmlb_chnmlb_1/',
-  #      'xml/gid_2012_07_17_seamlb_kcamlb_1/'
-  #  ]
-
-    #games = [Game.from_path(path) for path in paths]
-    #session.add_all(games)
-
-    # TODO: Fix double headers
-  #  all_paths = glob('xml/gid_*')
-  #  #sampled_paths = random.sample(all_paths, 1000)
-  #  loaded = 0
-  #  for path in all_paths:
-  #      if 'bak' in path[-4:]:
-  #          #TODO: Better way to check this via regex?
-  #          continue
-  #      load_from_path(path, session=session)
-  #      loaded += 1
-  #      if loaded % 100 == 0:
-  #          print("{} loaded".format(loaded))
-    #empty_path = 'xml/gid_2012_09_24_tboint_canint_1'
-    #load_from_path(empty_path, session=session)
-    #session.commit()
-    #with open(os.path.join(paths[1], 'boxscore.xml'), 'r') as box:
-    #    box_soup = BeautifulSoup(box)
-    #with open(os.path.join(paths[1], 'linescore.xml'), 'r') as line:
-    #    line_soup = BeautifulSoup(line)
-
-    #teamstats = Team_Stats.from_soup(box_soup, line_soup, 'home')
-    # Check xml/gid_2008_07_13_wftmin_uftmin_1
-   # path = 'xml/gid_2008_07_13_wftmin_uftmin_1'
-   # load_from_path(path, session=session)
-
-    #session.close_all()

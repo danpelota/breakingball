@@ -1,11 +1,15 @@
 from bs4 import BeautifulSoup
 import requests
 import re
-from utils import gid_to_url, gid_to_date, try_int, try_float, dict_to_db
+from utils import gid_to_url, gid_to_date, try_int, try_float, daterange, \
+    fetch_game_listings
 import datetime as dt
 from pytz import timezone
 from download import logging
-from models import Session, Game, Team, TeamStats, Pitcher, Batter, AtBat
+from models import Session, Game, Team, TeamStats, Pitcher, Batter, Runner, AtBat,\
+    Pitch
+from sqlalchemy.sql import exists
+
 
 class GameLoader:
     def __init__(self, game_id, session):
@@ -58,7 +62,7 @@ class GameLoader:
             game_time = dt.datetime.strptime(time_text, '%I:%M %p').time()
             game['game_datetime'] = dt.datetime.combine(self.game_date, game_time)
         except ValueError:
-            logging.warn('Could not parse time for {}'.format(game_id))
+            logging.warn('Could not parse time for {}'.format(self.game_id))
 
         game['venue'] = self.linescore.get('venue')
         game['game_type'] = self.linescore.get('game_type', '')
@@ -144,6 +148,7 @@ class GameLoader:
             b['batter_id'] = try_int(batter.get('id'))
             b['name'] = batter.get('name')
             b['full_name'] = batter.get('name_display_first_last')
+            b['avg'] = try_float(batter.get('avg'))
             b['batting_order'] = try_int(batter.get('bo'))
             b['at_bats'] = try_int(batter.get('ab'))
             b['strikeouts'] = try_int(batter.get('so'))
@@ -202,7 +207,7 @@ class GameLoader:
             p['strikes'] = try_int(pitcher.get('s'))
             p['blown_saves'] = try_int(pitcher.get('bs'))
             p['holds'] = try_int(pitcher.get('hld'))
-            p['season_innings_pitched'] = try_int(pitcher.get('s_ip'))
+            p['season_innings_pitched'] = try_float(pitcher.get('s_ip'))
             p['season_hits'] = try_int(pitcher.get('s_h'))
             p['season_runs'] = try_int(pitcher.get('s_r'))
             p['season_earned_runs'] = try_int(pitcher.get('s_er'))
@@ -246,6 +251,69 @@ class GameLoader:
             ab = dict((k, v) for k, v in ab.items() if v is not None)
             self.session.merge(AtBat(**ab))
 
+    def parse_pitches(self):
+        for pitch in self.pitches:
+            p = {}
+            p['game_id'] = self.game_id
+            p['pitch_id'] = try_int(pitch.get('id'))
+            p['at_bat_number'] = try_int(pitch.parent.get('num'))
+            p['description'] = pitch.get('des')
+            p['type'] = pitch.get('type')
+            try:
+                t = dt.datetime.strptime(pitch.get('tfs_zulu', ''), '%Y-%m-%dT%H:%M:%SZ')
+                p['timestamp'] = t.replace(tzinfo=timezone('UTC')).\
+                    astimezone(timezone('America/New_York'))
+            except ValueError:
+                logging.warning('Could not parse timestamp: Game {}; pitch {}'.format(
+                    self.game_id, p['pitch_id']))
+            p['x'] = try_float(pitch.get('x'))
+            p['y'] = try_float(pitch.get('y'))
+            p['event_num'] = try_int(pitch.get('event_num'))
+            p['sv_id'] = pitch.get('sv_id')
+            p['play_guid'] = pitch.get('play_guid')
+            p['start_speed'] = try_float(pitch.get('start_speed'))
+            p['end_speed'] = try_float(pitch.get('end_speed'))
+            p['sz_top'] = try_float(pitch.get('sz_top'))
+            p['sz_bottom'] = try_float(pitch.get('sz_bot'))
+            p['pfx_x'] = try_float(pitch.get('pfx_x'))
+            p['pfx_z'] = try_float(pitch.get('pfx_z'))
+            p['x0'] = try_float(pitch.get('x0'))
+            p['y0'] = try_float(pitch.get('y0'))
+            p['z0'] = try_float(pitch.get('z0'))
+            p['vx0'] = try_float(pitch.get('vx0'))
+            p['vy0'] = try_float(pitch.get('vy0'))
+            p['vz0'] = try_float(pitch.get('vz0'))
+            p['ax'] = try_float(pitch.get('ax'))
+            p['ay'] = try_float(pitch.get('ay'))
+            p['az'] = try_float(pitch.get('az'))
+            p['break_y'] = try_float(pitch.get('break_y'))
+            p['break_angle'] = try_float(pitch.get('break_angle'))
+            p['break_length'] = try_float(pitch.get('break_length'))
+            p['pitch_type'] = pitch.get('pitch_type')
+            p['type_confidence'] = try_float(pitch.get('type_confidence'))
+            p['zone'] = try_int(pitch.get('zone'))
+            p['nasty'] = try_int(pitch.get('nasty'))
+            p['spin_dir'] = try_float(pitch.get('spin_dir'))
+            p['spin_rate'] = try_float(pitch.get('spin_rate'))
+            p = dict((k, v) for k, v in p.items() if v is not None)
+            self.session.merge(Pitch(**p))
+
+    def parse_runners(self):
+        for runner in self.runners:
+            r = {}
+            r['game_id'] = self.game_id
+            r['at_bat_number'] = try_int(runner.parent.get('num'))
+            r['runner_id'] = try_int(runner.get('id'))
+            r['start'] = runner.get('start')
+            r['end'] = runner.get('end')
+            r['event'] = runner.get('event')
+            r['event_num'] = runner.get('event_num')
+            r['score'] = (runner.get('score') is not None) & (runner.get('score') == 'T')
+            r['rbi'] = (runner.get('rbi') is not None) & (runner.get('rbi') == 'T')
+            r['earned'] = (runner.get('earned') is not None) & (runner.get('earned') == 'T')
+            r = dict((k, v) for k, v in r.items() if v is not None)
+            self.session.merge(Runner(**r))
+
 
     def fetch_all(self):
         self.fetch_linescore()
@@ -262,53 +330,24 @@ class GameLoader:
             self.parse_pitchers()
             self.parse_batters()
             self.parse_atbats()
+            self.parse_pitches()
+            self.parse_runners()
             self.session.commit()
 
+    def load(self, skip_if_final=True):
+        loaded = self.session.query(exists().where(
+            (Game.game_id == self.game_id) & (Game.status == 'Final'))).scalar()
+        if skip_if_final & loaded:
+            return
+        self.fetch_all()
+        self.parse_all()
 
 
+if __name__ == '__main__':
+    session = Session()
 
-
-
-
-
-
-
-
-# game_id = 'gid_2015_04_25_houmlb_oakmlb_1'
-# url = gid_to_url(game_id)
-# game_date = gid_to_date(game_id)
-
-# boxscore = BeautifulSoup(requests.get(url + 'boxscore.xml').content)
-# inning_links = BeautifulSoup(requests.get(url + 'inning').content)
-# available_innings = inning_links.find_all('a', href=re.compile(r'[0-9]\.xml$'))
-# inning_urls = [url + '/inning/' + x.get('href') for x in available_innings]
-# inning_content = ''.join([str(requests.get(x).content) for x in inning_urls])
-# innings = BeautifulSoup(inning_content)
-
-# game = {}
-# game['game_id'] = game_id
-# game['game_date'] = game_date
-# time_text = '{} {}'.format(linescore.get('time'), linescore.get('ampm'))
-# try:
-#     game_time = dt.datetime.strptime(time_text, '%I:%M %p').time()
-#     game['game_datetime'] = dt.datetime.combine(game_date, game_time)
-# except ValueError:
-#     logging.warn('Could not parse time for {}'.format(game_id))
-# game['season'] = game_date.year
-# game['venue'] = linescore.get('venue')
-# game['game_type'] = linescore.get('game_type')
-# game['inning'] = linescore.get('inning')
-# game['outs'] = try_int(linescore.get('outs'))
-# game['top_inning'] = ((linescore.get('top_inning') is not None) &
-#                       (linescore.get('top_inning') == 'Y'))
-# game['status'] = linescore.get('status')
-# game['home_team_id'] = try_int(linescore.get('home_team_id'))
-# game['away_team_id'] = try_int(linescore.get('away_team_id'))
-# game['home_team_runs'] = try_int(linescore.get('home_team_runs'))
-# game['away_team_runs'] = try_int(linescore.get('away_team_runs'))
-# game['home_team_hits'] = try_int(linescore.get('home_team_hits'))
-# game['away_team_hits'] = try_int(linescore.get('away_team_hits'))
-# game['home_team_errors'] = try_int(linescore.get('home_team_errors'))
-# game['away_team_errors'] = try_int(linescore.get('away_team_errors'))
-#
-#
+    for d in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 14)):
+        game_ids = fetch_game_listings(d)
+        for game_id in game_ids:
+            g = GameLoader(game_id, session)
+            g.load()
