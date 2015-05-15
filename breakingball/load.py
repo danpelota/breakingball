@@ -10,7 +10,6 @@ from models import Session, Game, Team, TeamStats, Pitcher, Batter, Runner, AtBa
     Pitch
 from sqlalchemy.sql import exists
 from sqlalchemy import exc
-from multiprocessing import Pool
 
 
 class GameLoader:
@@ -60,7 +59,8 @@ class GameLoader:
         game['url'] = self.url
         game['game_date'] = self.game_date
         game['season'] = self.season
-        time_text = '{} {}'.format(self.linescore.get('time'), self.linescore.get('ampm'))
+        time_text = '{} {}'.format(self.linescore.get('time'),
+                                   self.linescore.get('ampm'))
         try:
             game_time = dt.datetime.strptime(time_text, '%I:%M %p').time()
             game['game_datetime'] = dt.datetime.combine(self.game_date, game_time)
@@ -235,7 +235,8 @@ class GameLoader:
             ab['strikes'] = try_int(atbat.get('s'))
             ab['outs'] = try_int(atbat.get('o'))
             try:
-                t = dt.datetime.strptime(atbat.get('start_tfs_zulu', ''), '%Y-%m-%dT%H:%M:%SZ')
+                t = dt.datetime.strptime(atbat.get('start_tfs_zulu', ''),
+                                         '%Y-%m-%dT%H:%M:%SZ')
                 ab['start_time'] = t.replace(tzinfo=timezone('UTC')).\
                     astimezone(timezone('America/New_York'))
             except ValueError:
@@ -263,7 +264,8 @@ class GameLoader:
             p['description'] = pitch.get('des')
             p['type'] = pitch.get('type')
             try:
-                t = dt.datetime.strptime(pitch.get('tfs_zulu', ''), '%Y-%m-%dT%H:%M:%SZ')
+                t = dt.datetime.strptime(pitch.get('tfs_zulu', ''),
+                                         '%Y-%m-%dT%H:%M:%SZ')
                 p['timestamp'] = t.replace(tzinfo=timezone('UTC')).\
                     astimezone(timezone('America/New_York'))
             except ValueError:
@@ -354,13 +356,9 @@ class GameLoader:
 
 
 if __name__ == '__main__':
-
-    def loadgame(gid):
-        g = GameLoader(gid, Session)
-        g.load()
-    p = Pool(16)
-
-    for d in daterange(dt.date(2008, 1, 1), dt.date(2015, 5, 14)):
+    for d in daterange(dt.date(2015, 5, 14), dt.date(2015, 5, 15)):
         print('Getting listings for {}'.format(d.strftime('%Y-%m-%d')))
         game_ids = fetch_game_listings(d)
-        p.map(loadgame, game_ids)
+        for gid in game_ids:
+            g = GameLoader(gid, Session)
+            g.load()
