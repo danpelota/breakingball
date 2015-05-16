@@ -7,9 +7,9 @@ import bs4
 
 class TestGameLoader(unittest.TestCase):
     def setUp(self):
-        self.session = Session()
         self.game1_gid = 'gid_2015_04_27_phimlb_slnmlb_1'
-        self.game1 = GameLoader(self.game1_gid, self.session)
+        self.sessionmaker = Session
+        self.game1 = GameLoader(self.game1_gid, self.sessionmaker)
 
     def test_init(self):
         self.assertEqual(self.game1.game_id, self.game1_gid)
