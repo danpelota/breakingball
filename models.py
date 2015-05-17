@@ -1,20 +1,8 @@
-from download import logging
-import config
-import random
-from glob import glob
-import os
-import datetime as dt
-from bs4 import BeautifulSoup
-from utils import gid_to_date, gid_to_url, try_int, try_float
-from sqlalchemy import create_engine
+from utils import try_int
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, Boolean
 
 Base = declarative_base()
-#engine = create_engine(config.DB_URL, echo=True)
-engine = create_engine(config.DB_URL)
-Session = sessionmaker(bind=engine)
 
 
 class Game(Base):
@@ -108,9 +96,9 @@ class Pitcher(Base):
     pitcher_id = Column(Integer, primary_key=True)
     game_id = Column(String, primary_key=True)
     team_id = Column(Integer)
-    name = Column(String, nullable=False, default = '')
-    full_name = Column(String, nullable=False, default = '')
-    position = Column(String, nullable=False, default = '')
+    name = Column(String, nullable=False, default='')
+    full_name = Column(String, nullable=False, default='')
+    position = Column(String, nullable=False, default='')
     outs = Column(Integer)
     batters_faced = Column(Integer)
     home_runs = Column(Integer)
@@ -254,8 +242,3 @@ class Runner(Base):
     score = Column(Boolean)
     rbi = Column(Boolean)
     earned = Column(Boolean)
-
-
-if __name__ == '__main__':
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)

@@ -1,64 +1,98 @@
+# from celery import Celery
+# from db import Session
 from bs4 import BeautifulSoup
 import requests
 import re
-from utils import gid_to_url, gid_to_date, try_int, try_float, daterange, \
-    fetch_game_listings
+from utils import gid_to_url, gid_to_date, try_int, try_float
 import datetime as dt
+import dateutil.parser
 from pytz import timezone
-from download import logging
-from models import Session, Game, Team, TeamStats, Pitcher, Batter, Runner, AtBat,\
-    Pitch
+from models import Game, Team, TeamStats, Pitcher, Batter, Runner, AtBat, Pitch
 from sqlalchemy.sql import exists
 from sqlalchemy import exc
+import logging
+
+logging.basicConfig(level=logging.INFO,
+                    filename='load.log',
+                    format='%(asctime)s %(message)s')
 
 
-class GameLoader:
+class GameLoader(object):
+    """Class to download, parse, and load game data.
+
+    Attributes:
+        game_id : MLB-formatted game id
+        session: SQLAlchemy session for loading game data
+        game_date: Date of the game, from the parsed game_id
+        season: Season (year) during which the game takes place
+        base_url: Root URL for the game's Game Day xml data
+        to_load: List of objects pertaining to the game to be loaded to the
+            database
+        linescore: Parsed linescore.xml data
+        boxscore: Parsed boxscore.xml data
+        innings: List of parsed inning.xml data
+
+        """
+
     def __init__(self, game_id, sessionmaker):
+        """Args:
+            game_id: MLB GameDay-formatted game_id
+            sessionmaker: SQLAlchemy Session class
+
+        """
         self.game_id = game_id
         self.session = sessionmaker()
         self.game_date = gid_to_date(game_id)
         self.season = self.game_date.year
         self.base_url = gid_to_url(game_id)
-        self.url = gid_to_url(game_id)
         self.to_load = []
+        self.http_session = requests.Session()
+        self.get = self.http_session.get
 
     def fetch_linescore(self):
+        # Download and parse linescore.xml
         url = self.base_url + 'linescore.xml'
-        r = requests.get(url)
-        soup = BeautifulSoup(r.content).find('game')
+        r = self.get(url)
+        soup = BeautifulSoup(r.text).find('game')
         self.linescore = soup
 
     def fetch_boxscore(self):
+        # Download and parse boxscore.xml
         url = self.base_url + 'boxscore.xml'
-        r = requests.get(url)
-        soup = BeautifulSoup(r.content).find('boxscore')
+        r = self.get(url)
+        soup = BeautifulSoup(r.text).find('boxscore')
         self.boxscore = soup
 
     def fetch_innings(self):
+        # Download and parse all listed innings
         list_url = self.base_url + 'inning/'
-        r = requests.get(list_url)
-        inning_soup = BeautifulSoup(r.content)
+        r = self.get(list_url)
+        inning_soup = BeautifulSoup(r.text)
+        # Extract the urls from available innings. While recent seasons include
+        # 'inning/inning_all.xml', which contains data on all available innings,
+        # earlier seasons did not, so we'll use the 'inning_1.xml',
+        # 'inning_2.xml', ... pattern
         urls = inning_soup.find_all('a', href=re.compile(r'[0-9]\.xml$'))
-        innings_r = [requests.get(list_url + url.get('href')) for url in urls]
-        innings_soup = [BeautifulSoup(x.content).find('inning') for x in innings_r]
-        self.innings = innings_soup
-        self.atbats = []
-        self.pitches = []
-        self.runners = []
-        for inning in innings_soup:
-            for atbat in inning.find_all('atbat'):
-                self.atbats.append(atbat)
-            for pitch in inning.find_all('pitch'):
-                self.pitches.append(pitch)
-            for runner in inning.find_all('runner'):
-                self.runners.append(runner)
+        innings_request = [self.get(list_url + url.get('href'))
+                           for url in urls]
+        innings_xml = ''.join([x.text for x in innings_request])
+        self.innings = BeautifulSoup(innings_xml)
 
     def parse_game(self):
+        # Extract pertinent contents of linescore.xml and boxscore.xml, adding a
+        # Game object to the to_load list
+
+        # Hold the parsed contents in a dictionary. We'll drop None values
+        # before creating a Game instance.
         game = {}
         game['game_id'] = self.game_id
-        game['url'] = self.url
+        game['url'] = self.base_url
         game['game_date'] = self.game_date
         game['season'] = self.season
+
+        # Try to parse the starting time. Double-headers (game_ids ending with
+        # '_2') are sometimes missing this (they'll list the time as 'Gm 2').
+        # TODO: Try to parse this from the time_date attribute or from game.xml
         time_text = '{} {}'.format(self.linescore.get('time'),
                                    self.linescore.get('ampm'))
         try:
@@ -71,8 +105,7 @@ class GameLoader:
         game['game_type'] = self.linescore.get('game_type', '')
         game['inning'] = try_int(self.linescore.get('inning'))
         game['outs'] = try_int(self.linescore.get('outs'))
-        game['top_inning'] = ((self.linescore.get('top_inning') is not None) &
-                              (self.linescore.get('top_inning') == 'Y'))
+        game['top_inning'] = self.linescore.get('top_inning', '') == 'Y'
         game['status'] = self.linescore.get('status')
         game['home_team_id'] = try_int(self.linescore.get('home_team_id'))
         game['away_team_id'] = try_int(self.linescore.get('away_team_id'))
@@ -82,28 +115,43 @@ class GameLoader:
         game['away_team_hits'] = try_int(self.linescore.get('away_team_hits'))
         game['home_team_errors'] = try_int(self.linescore.get('home_team_errors'))
         game['away_team_errors'] = try_int(self.linescore.get('away_team_errors'))
+        # Drop 'None' items
         game = dict((k, v) for k, v in game.items() if v is not None)
+        # Add a Game object to the to_load list
         self.to_load.append(Game(**game))
 
     def parse_team(self, homeaway='home'):
+        # Extract pertinent contents of boxscore.xml. We'll keep one record for
+        # each Team per season, to allow for changing team names and/or cities.
+        # Since this will usually be an update (not an insert), merge it here
+        # instead of adding it to the list of objects to be added at once.
+
         if self.boxscore is None:
-            logging.warn('No boxscore available to parse')
+            logging.warn('{}: No boxscore available'.format(self.game_id))
             return
+
+        # Hold the parsed contents in a dictionary. We'll drop None values
+        # before creating a Game instance.
         team = {}
         team['team_id'] = try_int(self.boxscore.get(homeaway + '_id'))
         team['season'] = self.season
         team['name'] = self.boxscore.get(homeaway + '_fname')
         team['short_name'] = self.boxscore.get(homeaway + '_sname')
-        # League is a two-character code (e.g., 'AN'), with the home team's
-        # league first and the away team second. If away, use second. If
-        # home, use first.
+
+        # League is a two-character code (e.g., 'AN' for 'American vs.
+        # National'), with the home team's league first and the away team second.
+        # If away, use the second character (True ~ 1). Otherwise, use the
+        # first (False ~ 0).
         team['league'] = self.linescore.get('league', '  ')[homeaway == 'away']
         team['division'] = self.linescore.get(homeaway + '_division', '')
+
+        # Drop None values
         team = dict((k, v) for k, v in team.items() if v is not None)
         self.session.merge(Team(**team))
         self.session.commit()
 
     def parse_team_stats(self, homeaway='home'):
+        # Parse each team's stats, relative to a single game
         team_stats = {}
         batting = self.boxscore.find('batting', team_flag=homeaway)
         pitching = self.boxscore.find('pitching', team_flag=homeaway)
@@ -112,6 +160,10 @@ class GameLoader:
         team_stats['at_home'] = (homeaway == 'home')
         games_back_text = self.linescore.get(homeaway + '_games_back')
         games_back_wildcard_text = self.linescore.get(homeaway + '_games_back')
+
+        # If a team is 0 games back, they'll be listed as '-'. The
+        # games_back_wildcard is sometimes '-', sometimes missing in this case.
+        # If they're 0 games back, set both to 0
         if games_back_text == '-':
             team_stats['games_back'] = 0
             team_stats['games_back_wildcard'] = 0
@@ -121,6 +173,7 @@ class GameLoader:
         else:
             team_stats['games_back'] = try_float(games_back_text)
             team_stats['games_back_wildcard'] = try_float(games_back_wildcard_text)
+
         wins = try_int(self.boxscore.get(homeaway + '_wins', 0))
         losses = try_int(self.boxscore.get(homeaway + '_loss', 0))
         team_stats['wins'] = wins
@@ -140,10 +193,12 @@ class GameLoader:
         team_stats['strikeouts'] = try_int(batting.get('so'))
         team_stats['left_on_base'] = try_int(batting.get('lob'))
         team_stats['era'] = try_float(pitching.get('era'))
+        # Drop None values and add TeamStats object to the to_load list
         team_stats = dict((k, v) for k, v in team_stats.items() if v is not None)
         self.to_load.append(TeamStats(**team_stats))
 
     def parse_batters(self):
+        # Parses batter statistics and adds all batters to the to_load list
         for batter in self.boxscore.find_all('batter'):
             b = {}
             b['game_id'] = self.game_id
@@ -181,10 +236,12 @@ class GameLoader:
             b['putouts'] = try_int(batter.get('po'))
             b['errors'] = try_int(batter.get('e'))
             b['fielding'] = try_float(batter.get('fldg'))
+            # Drop None values and add to to_load list
             b = dict((k, v) for k, v in b.items() if v is not None)
             self.to_load.append(Batter(**b))
 
     def parse_pitchers(self):
+        # Parses pitcher statistics and adds all pitchers to the to_load list
         for pitcher in self.boxscore.find_all('pitcher'):
             p = {}
             p['pitcher_id'] = try_int(pitcher.get('id'))
@@ -221,11 +278,13 @@ class GameLoader:
             p['save'] = pitcher.get('save')
             p['loss'] = pitcher.get('loss')
             p['win'] = pitcher.get('win')
+            # Drop None values and add to the to_load list
             p = dict((k, v) for k, v in p.items() if v is not None)
             self.to_load.append(Pitcher(**p))
 
     def parse_atbats(self):
-        for atbat in self.atbats:
+        # Parse each at bat and add objects to the to_load list
+        for atbat in self.innings.find_all('atbat'):
             ab = {}
             ab['at_bat_number'] = int(atbat.get('num'))
             ab['game_id'] = self.game_id
@@ -235,10 +294,8 @@ class GameLoader:
             ab['strikes'] = try_int(atbat.get('s'))
             ab['outs'] = try_int(atbat.get('o'))
             try:
-                t = dt.datetime.strptime(atbat.get('start_tfs_zulu', ''),
-                                         '%Y-%m-%dT%H:%M:%SZ')
-                ab['start_time'] = t.replace(tzinfo=timezone('UTC')).\
-                    astimezone(timezone('America/New_York'))
+                t = dateutil.parser.parse(atbat.get('start_tfs_zulu', ''))
+                ab['start_time'] = t.astimezone(timezone('America/New_York'))
             except ValueError:
                 logging.warning('Could not parse timestamp: Game {}; inning{}'.format(
                     self.game_id, ab['inning']))
@@ -252,11 +309,13 @@ class GameLoader:
             ab['score'] = atbat.get('score', 'F') == 'T'
             ab['home_team_runs'] = try_int(atbat.get('home_team_runs'))
             ab['away_team_runs'] = try_int(atbat.get('away_team_runs'))
+            # Drop nones and add to to_load
             ab = dict((k, v) for k, v in ab.items() if v is not None)
             self.to_load.append(AtBat(**ab))
 
     def parse_pitches(self):
-        for pitch in self.pitches:
+        # Parse every pitch in all innings, adding them to the to_load list.
+        for pitch in self.innings.find_all('pitch'):
             p = {}
             p['game_id'] = self.game_id
             p['pitch_id'] = try_int(pitch.get('id'))
@@ -264,10 +323,8 @@ class GameLoader:
             p['description'] = pitch.get('des')
             p['type'] = pitch.get('type')
             try:
-                t = dt.datetime.strptime(pitch.get('tfs_zulu', ''),
-                                         '%Y-%m-%dT%H:%M:%SZ')
-                p['timestamp'] = t.replace(tzinfo=timezone('UTC')).\
-                    astimezone(timezone('America/New_York'))
+                t = dateutil.parser.parse(pitch.get('tfs_zulu', ''))
+                p['timestamp'] = t.astimezone(timezone('America/New_York'))
             except ValueError:
                 logging.warning('Could not parse timestamp: Game {}; pitch {}'.format(
                     self.game_id, p['pitch_id']))
@@ -300,11 +357,17 @@ class GameLoader:
             p['nasty'] = try_int(pitch.get('nasty'))
             p['spin_dir'] = try_float(pitch.get('spin_dir'))
             p['spin_rate'] = try_float(pitch.get('spin_rate'))
+            # Drop None items and add Pitch to to_load
             p = dict((k, v) for k, v in p.items() if v is not None)
+            logging.info(p)
             self.to_load.append(Pitch(**p))
 
     def parse_runners(self):
-        for runner in self.runners:
+        # Parse all runners
+        # TODO: Multiple runner tags for the same runner will sometimes appear
+        # in a single at bat (for example, when a runner steals a base).  Need
+        # to add some kind of sequence identifier.
+        for runner in self.innings.find_all('runner'):
             r = {}
             r['game_id'] = self.game_id
             r['at_bat_number'] = try_int(runner.parent.get('num'))
@@ -313,13 +376,15 @@ class GameLoader:
             r['end'] = runner.get('end')
             r['event'] = runner.get('event')
             r['event_num'] = runner.get('event_num')
-            r['score'] = (runner.get('score') is not None) & (runner.get('score') == 'T')
-            r['rbi'] = (runner.get('rbi') is not None) & (runner.get('rbi') == 'T')
-            r['earned'] = (runner.get('earned') is not None) & (runner.get('earned') == 'T')
+            r['score'] = runner.get('score', '') == 'T'
+            r['rbi'] = runner.get('rbi', '') == 'T'
+            r['earned'] = runner.get('earned', '') == 'T'
+            # Drop None values
             r = dict((k, v) for k, v in r.items() if v is not None)
             self.to_load.append(Runner(**r))
 
     def fetch_all(self):
+        # Download the linescore, boxscore, and innings data.
         self.fetch_linescore()
         self.fetch_boxscore()
         self.fetch_innings()
@@ -338,15 +403,31 @@ class GameLoader:
             self.parse_runners()
 
     def load(self, skip_if_final=True):
-        loaded = self.session.query(exists().where(
-            (Game.game_id == self.game_id) & (Game.status == 'Final'))).scalar()
-        if skip_if_final & loaded:
-            self.session.close()
-            return
+        """Fetch all pertinent XML data, parse, and load into the database.
+        Args:
+            skip_if_final: Skip the download and parsing if the game exists in
+                the database with a status of 'Final'? Defaults to True. If
+                False, force refresh of all data
+
+        """
+        if skip_if_final:
+            loaded = self.session.query(exists().where(
+                (Game.game_id == self.game_id) & (Game.status == 'Final'))).scalar()
+            if loaded:
+                logging.info('{} exists with status = "Final". Skipping'.format(
+                    self.game_id))
+                # Be sure to close the session if we exit early!
+                # TODO: Create the session in this method and wrap in a context
+                # manager?
+                self.session.close()
+                return
         self.fetch_all()
         self.parse_all()
+        # Poor-man's upsert. Try adding all objects. If there's a primary key
+        # conflict, merge instead.
         try:
             self.session.add_all(self.to_load)
+            # The integrity error won't be thrown until a commit
             self.session.commit()
         except exc.IntegrityError:
             self.session.rollback()
@@ -355,10 +436,10 @@ class GameLoader:
         self.session.close()
 
 
-if __name__ == '__main__':
-    for d in daterange(dt.date(2015, 5, 14), dt.date(2015, 5, 15)):
-        print('Getting listings for {}'.format(d.strftime('%Y-%m-%d')))
-        game_ids = fetch_game_listings(d)
-        for gid in game_ids:
-            g = GameLoader(gid, Session)
-            g.load()
+# app = Celery('load', broker='amqp://guest@localhost//')
+#
+#
+# @app.task
+# def load_game(gid):
+#     g = GameLoader(gid, Session)
+#     g.load(skip_if_final=False)
