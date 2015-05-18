@@ -148,8 +148,9 @@ class GameLoader(object):
 
         # Drop None values
         team = dict((k, v) for k, v in team.items() if v is not None)
-        self.session.merge(Team(**team))
-        self.session.commit()
+        if 'team_id' in team:
+            self.session.merge(Team(**team))
+            self.session.commit()
 
     def parse_team_stats(self, homeaway='home'):
         # Parse each team's stats, relative to a single game
