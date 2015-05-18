@@ -9,6 +9,9 @@ import datetime as dt
 
 # TODO: Mock a few game objects with pre-downloaded XML so we can extensively
 # test various loading scenarios
+# TODO: Add test for gid_2005_03_18_arimlb_colmlb_1 to ensure we increment pitch
+# ID where it doesn't exist
+
 class TestGameLoader(unittest.TestCase):
     def setUp(self):
         url = config.DB_TEST_URL

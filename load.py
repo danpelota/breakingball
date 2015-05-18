@@ -16,5 +16,4 @@ for d in daterange(start_date, end_date):
     print('Getting listings for {}'.format(d.strftime('%Y-%m-%d')))
     game_ids = fetch_game_listings(d)
     for gid in game_ids:
-        load_game(gid)
-        # load_game.delay(gid)
+        load_game.delay(gid)
