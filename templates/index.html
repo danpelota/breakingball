@@ -1,0 +1,13 @@
+<html>
+<head><title>BreakingBall</title></head>
+<body>
+<div>Game count: {{ game_count }}</div>
+<div> Most recent games:
+    <list>
+        {% for game in games|sort(reverse=True, attribute='game_date') %}
+        <li><a href="{{ url_for('game_details', game_id = game.game_id) }}">{{ game }}</a> </li>
+        {% endfor %}
+    </list>
+</div>
+</body>
+</html>
