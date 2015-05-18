@@ -1,5 +1,6 @@
-# from celery import Celery
-# from db import Session
+from celery import Celery
+from itertools import count
+from db import Session
 from bs4 import BeautifulSoup
 import requests
 import re
@@ -315,10 +316,13 @@ class GameLoader(object):
 
     def parse_pitches(self):
         # Parse every pitch in all innings, adding them to the to_load list.
+        pitch_counter = count()
         for pitch in self.innings.find_all('pitch'):
+            # Some years are missing pitch_ids. Since we're using it as a key,
+            # assign here and increment the counter
             p = {}
             p['game_id'] = self.game_id
-            p['pitch_id'] = try_int(pitch.get('id'))
+            p['pitch_id'] = int(pitch.get('id', next(pitch_counter)))
             p['at_bat_number'] = try_int(pitch.parent.get('num'))
             p['description'] = pitch.get('des')
             p['type'] = pitch.get('type')
@@ -436,10 +440,9 @@ class GameLoader(object):
         self.session.close()
 
 
-# app = Celery('load', broker='amqp://guest@localhost//')
-#
-#
-# @app.task
-# def load_game(gid):
-#     g = GameLoader(gid, Session)
-#     g.load(skip_if_final=False)
+app = Celery('load', broker='amqp://guest@localhost//')
+
+@app.task
+def load_game(gid):
+    g = GameLoader(gid, Session)
+    g.load(skip_if_final=True)
