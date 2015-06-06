@@ -444,6 +444,6 @@ class GameLoader(object):
 app = Celery('load', broker='amqp://guest@localhost//')
 
 @app.task
-def load_game(gid):
+def load_game(gid, skip_if_final):
     g = GameLoader(gid, Session)
-    g.load(skip_if_final=True)
+    g.load(skip_if_final=skip_if_final)
