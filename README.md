@@ -1,15 +1,30 @@
 # breakingball
 Scripts to download and analyze MLB game data.
 
+## Setting Up the Database
+
+Create the PostgreSQL database:
+
+    createdb breakingball
+
+Create the database tables:
+
+    ./db.py init
+
+To drop all application tables and recreate them from scratch (**this will
+destory all previously loaded data**):
+
+    ./db.py reset
+
 ## Downloading Game Data
 
 Start celery workers (with optional concurrency)
 
     celery -A gameloader worker --loglevel=info --concurrency=4
 
-Running `load.py` will first scrape game listings from a given date (or range
-of dates) and then delegate the download and extraction process to celery
-workers (performed asynchronously). To load game data from a single date:
+`load.py` will first scrape game listings from a given date (or range of dates)
+and then delegate the download and extraction process to celery workers to be
+performed asynchronously. To load game data from a single date:
 
     ./load.py --start-date 2015-05-13
 
